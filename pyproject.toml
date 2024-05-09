@@ -1,0 +1,14 @@
+[project]
+name="fvhoe"
+version="0.0.0"
+description="Solve Euler equations with high-order finite volume methods."
+authors = [
+    {name = "Jonathan Palafoutas", email = "jpalafou@princeton.edu"}
+]
+
+dependencies = [
+    "numpy",
+]
+
+[project.optional-dependencies]
+test=["pytest"]
