@@ -32,7 +32,32 @@ class EulerSolver(ODE):
         conservative_ic: bool = False,
     ):
         """
-        ...
+        solver for Euler equations, a system of 5 variables:
+            rho (density)
+            P (pressure)
+            vx (x-velocity)
+            vy (y-velocity)
+            vz (z-velocity)
+        implemented in 1D, 2D, and 3D
+        args:
+            w0(X, Y, Z) (callable) : function of a 3D mesh. returns array_like of shape
+                (5, nz, ny, nz)
+            nx (int) : number of cells along x-direction. ignore by setting nx=1, px=0
+            ny (int) : number of cells along y-direction. ignore by setting ny=1, py=0
+            nz (int) : number of cells along z-direction. ignore by setting nz=1, pz=0
+            x (Tuple[float, float]) : x domain bounds (x1, x2)
+            y (Tuple[float, float]) : y domain bounds (y1, y2)
+            z (Tuple[float, float]) : z domain bounds (z1, z2)
+            CFL (float) : Courant-Friedrichs-Lewy condition
+            gamma (float) : specific heat ratio
+            bc (str) : boundary condition type
+                "periodic" : periodic boundary condition
+            riemann_solver (str) : riemann solver code
+                "advection_upwinding" : for pure advection problem
+                "HLLC" : advanced riemann solver for Euler equations
+            conservative_ic (bool) : indicates that w0 returns conservative variables if true
+        returns:
+            EulerSolver object
         """
 
         # generate txyz mesh
