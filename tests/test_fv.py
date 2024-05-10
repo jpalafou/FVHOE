@@ -1,28 +1,9 @@
+from fvhoe.initial_conditions import square, sinus
 from fvhoe.fv import fv_average
 import numpy as np
 import pytest
 from tests.utils import mse
 from typing import Tuple
-
-
-def sinus(x, y, z):
-    out = np.empty((2, *x.shape))
-    out[0] = 0.5 * np.sin(2 * np.pi * (x + y + z)) + 1.5
-    out[1] = 0.5 * np.sin(2 * np.pi * (x + y + z)) + 2.5
-    return out
-
-
-def square(x, y, z):
-    out = np.empty((2, *x.shape))
-    inside_x_square = np.logical_and(x > 0.25, x < 0.75)
-    inside_y_square = np.logical_and(y > 0.25, y < 0.75)
-    inside_z_square = np.logical_and(z > 0.25, z < 0.75)
-    inside_square = np.logical_and(
-        np.logical_and(inside_x_square, inside_y_square), inside_z_square
-    )
-    out[0] = np.where(inside_square, 2, 1)
-    out[1] = np.where(inside_square, 3, 2)
-    return out
 
 
 def meshgen(
@@ -59,10 +40,13 @@ def meshgen(
 
 def test_first_order_cell_average():
     """
-    a first-order finite volume average should be trivial
+    assert first-order finite volume average should is trivial
     """
     (X, Y, Z), h = meshgen((32, 64, 128))
-    f = sinus
+
+    def f(x, y, z):
+        return sinus(x, y, z, dims="xyz", vx=1, vy=2, vz=3)
+
     assert np.all(f(X, Y, Z) == fv_average(f=f, x=X, y=Y, z=Z, h=h))
 
 
@@ -71,8 +55,15 @@ def test_first_order_cell_average():
 @pytest.mark.parametrize("pz", [0, 1, 2, 3])
 def test_uniform_cell_average(px, py, pz):
     """
-    the finite volume average of a uniform region shoudl be trivial
+    assert finite volume average of a uniform region is trivial
+    args:
+        px (int) : polynomial interpolation degree in x-direction
+        py (int) : polynomial interpolation degree in y-direction
+        pz (int) : polynomial interpolation degree in z-direction
     """
     (X, Y, Z), h = meshgen((32, 64, 128))
-    f = square
+
+    def f(x, y, z):
+        return square(x, y, z, dims="xyz", vx=1, vy=2, vz=3)
+
     assert mse(f(X, Y, Z), fv_average(f=f, x=X, y=Y, z=Z, h=h, p=(px, py, pz))) < 1e-15

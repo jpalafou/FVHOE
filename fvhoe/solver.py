@@ -77,19 +77,56 @@ class EulerSolver(ODE):
         return self.hydrodynamics(u)
 
     def snapshot(self):
-        w = compute_primitives(self.u, gamma=self.gamma)
+        """
+        save dictionary of finite volume averages at a given time to the snapshots attribute
+        """
+        u = self.u
+        w = compute_primitives(u, gamma=self.gamma)
+
         log = {
-            "rho": self.u[0].copy(),
-            "E": self.u[1].copy(),
-            "px": self.u[2].copy(),
-            "py": self.u[3].copy(),
-            "pz": self.u[4].copy(),
+            "rho": u[0].copy(),
+            "E": u[1].copy(),
+            "px": u[2].copy(),
+            "py": u[3].copy(),
+            "pz": u[4].copy(),
             "P": w[1].copy(),
             "vx": w[2].copy(),
             "vy": w[3].copy(),
             "vz": w[4].copy(),
         }
         self.snapshots[self.t] = log
+
+    def interpolate_cell_centers(
+        self, fvarr: np.ndarray, p: Tuple[int, int, int]
+    ) -> np.ndarray:
+        """
+        args:
+            fvarr (array_like) : array of cell averages, shape (5, ny, nx,n z)
+            p (Tuple[int, int, int]) : polynomial interpolation degree (px, py, pz)
+        returns
+            out (array_like) : conservative interpolation of fvarr at cell centers
+        """
+        gw = (int(np.ceil(p[0] / 2)), int(np.ceil(p[1] / 2)), int(np.ceil(p[2] / 2)))
+        fvarr_bced = self.apply_bcs(
+            fvarr,
+            bc_type=self.bc,
+            pad_width=((0, 0), (gw[0], gw[0]), (gw[1], gw[1]), (gw[2], gw[2])),
+        )
+        out = conservative_interpolation(
+            fvarr=conservative_interpolation(
+                fvarr=conservative_interpolation(
+                    fvarr=fvarr_bced, p=p[0], axis=1, pos="c"
+                ),
+                p=p[1],
+                axis=2,
+                pos="c",
+            ),
+            p=p[2],
+            axis=3,
+            pos="c",
+        )
+        assert out.shape == fvarr.shape
+        return out
 
     def apply_bcs(self, u: np.ndarray, bc_type: str, **kwargs) -> np.ndarray:
         """
@@ -225,6 +262,21 @@ class EulerSolver(ODE):
 
         return dt, dudt
 
+    def rkorder(self, *args, **kwargs):
+        """
+        chose Runge-Kutta method to match the spatial interpolation polynomial degree
+        """
+        p = max(self.p)
+        match p:
+            case 0:
+                self.euler(*args, **kwargs)
+            case 1:
+                self.ssprk2(*args, **kwargs)
+            case 2:
+                self.ssprk3(*args, **kwargs)
+            case _:
+                self.rk4(*args, **kwargs)
+
     def plot_1d_slice(
         self,
         ax,
@@ -233,7 +285,7 @@ class EulerSolver(ODE):
         x=None,
         y=None,
         z=None,
-        verbose: bool = False,
+        verbose: bool = True,
         **kwargs,
     ) -> None:
         if sum([x == None, y == None, z == None]) != 1:
@@ -259,7 +311,7 @@ class EulerSolver(ODE):
             z = self.z
             x_for_plotting = self.z
             y_for_plotting = self.snapshots[t][param][i, j, :]
-        if not verbose:
+        if verbose:
             message = ", ".join(
                 [
                     f"{m:.2f}"
@@ -285,20 +337,73 @@ class EulerSolver(ODE):
                 else f"[{z[0]:.2f}, {z[-1]:.2f}]"
             )
             print(f"t={t_message}, x={x_message}, y={y_message}, z={z_message}")
+        return ax.plot(x_for_plotting, y_for_plotting, **kwargs)
 
-        ax.plot(x_for_plotting, y_for_plotting, **kwargs)
-
-    def rkorder(self, *args, **kwargs):
-        """
-        chose Runge-Kutta method to match the spatial interpolation polynomial degree
-        """
-        p = max(self.p)
-        match p:
-            case 0:
-                self.euler(*args, **kwargs)
-            case 1:
-                self.ssprk2(*args, **kwargs)
-            case 2:
-                self.ssprk3(*args, **kwargs)
-            case _:
-                self.rk4(*args, **kwargs)
+    def plot_2d_slice(
+        self,
+        ax,
+        param: str,
+        t: float = None,
+        x=None,
+        y=None,
+        z=None,
+        verbose: bool = True,
+        **kwargs,
+    ) -> None:
+        if sum([x == None, y == None, z == None]) != 2:
+            raise BaseException("Two out of the three coordinates x-y-z must be None")
+        t = max(self.snapshots.keys()) if t is None else t
+        n = np.argmin(np.abs(np.array(list(self.snapshots.keys())) - t))
+        t = list(self.snapshots.keys())[n]
+        if x == None and y == None:
+            k = np.argmin(np.abs(self.z - z))
+            z = self.z[k]
+            x, y = self.x, self.y
+            z_for_plotting = self.snapshots[t][param][:, :, k]
+            z_for_plotting = np.rot90(z_for_plotting, 1)
+            horizontal_axis, vertical_axis = "x", "y"
+            limits = (x[0], x[-1], y[0], y[-1])
+        elif y == None and z == None:
+            i = np.argmin(np.abs(self.x - x))
+            x = self.x[i]
+            y, z = self.y, self.z
+            z_for_plotting = self.snapshots[t][param][i, :, :]
+            z_for_plotting = np.rot90(z_for_plotting, 1)
+            horizontal_axis, vertical_axis = "y", "z"
+            limits = (y[0], y[-1], z[0], z[-1])
+        elif x == None and z == None:
+            j = np.argmin(np.abs(self.y - y))
+            y = self.y[j]
+            z, x = self.z, self.x
+            z_for_plotting = self.snapshots[t][param][:, j, :]
+            z_for_plotting = np.rot90(z_for_plotting, 1)
+            horizontal_axis, vertical_axis = "x", "z"
+            limits = (x[0], x[-1], z[0], z[-1])
+        if verbose:
+            message = ", ".join(
+                [
+                    f"{m:.2f}"
+                    if (isinstance(m, int) or isinstance(m, float))
+                    else f"[{m[0]:.2f},{m[-1]:.2f}]"
+                    for m in [t, x, y, z]
+                ]
+            )
+            t_message = f"{t:.2f}"
+            x_message = (
+                f"{x:.2f}"
+                if (isinstance(x, int) or isinstance(x, float))
+                else f"[{x[0]:.2f}, {x[-1]:.2f}]"
+            )
+            y_message = (
+                f"{y:.2f}"
+                if (isinstance(y, int) or isinstance(y, float))
+                else f"[{y[0]:.2f}, {y[-1]:.2f}]"
+            )
+            z_message = (
+                f"{z:.2f}"
+                if (isinstance(z, int) or isinstance(z, float))
+                else f"[{z[0]:.2f}, {z[-1]:.2f}]"
+            )
+            print(f"t={t_message}, x={x_message}, y={y_message}, z={z_message}")
+            print(f"{horizontal_axis=}, {vertical_axis=}")
+        return ax.imshow(z_for_plotting, extent=limits, **kwargs)

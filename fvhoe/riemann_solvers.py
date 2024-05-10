@@ -31,10 +31,16 @@ def advection_upwind(
     pl, pr = ul[vslice, ...], ur[vslice, ...]  # momentums
 
     # upwinding flux
+    kinetic_energy_l = 0.5 * np.sum(ul[2:] * wl[2:], axis=0)
+    kinetic_energy_r = 0.5 * np.sum(ur[2:] * wr[2:], axis=0)
     out = np.zeros_like(wl)
     out[0, ...] = np.where(v > 0, pl, np.where(v < 0, pr, 0))
-    out[1, ...] = np.where(v > 0, v * ul[1, ...], np.where(v < 0, v * ur[1, ...], 0))
-    out[vslice, ...] = np.where(v > 0, v * pl, np.where(v < 0, v * pr, 0))
+    out[1, ...] = np.where(
+        v > 0, v * kinetic_energy_l, np.where(v < 0, v * kinetic_energy_r, 0)
+    )
+    out[2, ...] = np.where(v > 0, pl * wl[2, ...], np.where(v < 0, pr * wr[2, ...], 0))
+    out[3, ...] = np.where(v > 0, pl * wl[3, ...], np.where(v < 0, pr * wr[3, ...], 0))
+    out[4, ...] = np.where(v > 0, pl * wl[4, ...], np.where(v < 0, pr * wr[4, ...], 0))
 
     return out
 
