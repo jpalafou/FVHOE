@@ -5,7 +5,8 @@ description="Solve Euler equations with high-order finite volume methods."
 authors = [
     {name = "Jonathan Palafoutas", email = "jpalafou@princeton.edu"}
 ]
-
+readme="README.md"
+requires-python = ">=3.10"
 dependencies = [
     "matplotlib",
     "numpy",
