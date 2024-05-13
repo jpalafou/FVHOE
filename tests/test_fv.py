@@ -2,7 +2,7 @@ from fvhoe.initial_conditions import square, sinus
 from fvhoe.fv import fv_average
 import numpy as np
 import pytest
-from tests.utils import mse
+from tests.test_utils import mse
 from typing import Tuple
 
 

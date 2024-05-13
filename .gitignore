@@ -1,7 +1,9 @@
-**/.ipynb_checkpoints/
 **/__pycache__/
-**/__pytest_cache__/
+**/.ipynb_checkpoints/
+**/.pytest_cache/
 build/
-*.egg-info/
+fvhoe.egg-info/
+.nox/
+.ruff_cache/
 
 *.log

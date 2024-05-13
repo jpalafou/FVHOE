@@ -66,9 +66,9 @@ def HLLC(
     # single out velocities and momentums
     vslice = {"x": 2, "y": 3, "z": 4}[dir]
     vl, vr = wl[vslice, ...], wr[vslice, ...]  # velocities
-    pl, pr = ul[vslice, ...], ur[vslice, ...]  # momentums
-    cl, cr = compute_sound_speed(wl, gamma), compute_sound_speed(
-        wr, gamma
+    cl, cr = (
+        compute_sound_speed(wl, gamma),
+        compute_sound_speed(wr, gamma),
     )  # sound speeds
 
     # pressure estimate

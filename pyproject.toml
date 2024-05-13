@@ -7,7 +7,9 @@ authors = [
 ]
 
 dependencies = [
+    "matplotlib",
     "numpy",
+    "tqdm",
 ]
 
 [project.optional-dependencies]

@@ -2,14 +2,12 @@ import numpy as np
 from fvhoe.fv import fv_average, conservative_interpolation, transverse_reconstruction
 from fvhoe.hydro import (
     compute_conservatives,
-    compute_fluxes,
     compute_primitives,
     compute_sound_speed,
 )
-from fvhoe.initial_conditions import square
 from fvhoe.ode import ODE
 from fvhoe.riemann_solvers import advection_upwind, HLLC
-from typing import Tuple, Union
+from typing import Tuple
 
 
 class EulerSolver(ODE):
@@ -345,38 +343,30 @@ class EulerSolver(ODE):
         verbose: bool = True,
         **kwargs,
     ) -> None:
-        if sum([x == None, y == None, z == None]) != 1:
+        if sum([x is None, y is None, z is None]) != 1:
             raise BaseException("One out of the three coordinates x-y-z must be None")
         t = max(self.snapshots.keys()) if t is None else t
         n = np.argmin(np.abs(np.array(list(self.snapshots.keys())) - t))
         t = list(self.snapshots.keys())[n]
-        if x == None:
+        if x is None:
             j, k = np.argmin(np.abs(self.y - y)), np.argmin(np.abs(self.z - z))
             y, z = self.y[j], self.z[k]
             x = self.x
             x_for_plotting = self.x
             y_for_plotting = self.snapshots[t][param][:, j, k]
-        elif y == None:
+        elif y is None:
             i, k = np.argmin(np.abs(self.x - x)), np.argmin(np.abs(self.z - z))
             x, z = self.x[i], self.z[k]
             y = self.y
             x_for_plotting = self.y
             y_for_plotting = self.snapshots[t][param][i, :, k]
-        elif z == None:
+        elif z is None:
             i, j = np.argmin(np.abs(self.x - x)), np.argmin(np.abs(self.y - y))
             x, y = self.x[i], self.y[j]
             z = self.z
             x_for_plotting = self.z
             y_for_plotting = self.snapshots[t][param][i, j, :]
         if verbose:
-            message = ", ".join(
-                [
-                    f"{m:.2f}"
-                    if (isinstance(m, int) or isinstance(m, float))
-                    else f"[{m[0]:.2f},{m[-1]:.2f}]"
-                    for m in [t, x, y, z]
-                ]
-            )
             t_message = f"{t:.2f}"
             x_message = (
                 f"{x:.2f}"
@@ -407,12 +397,12 @@ class EulerSolver(ODE):
         verbose: bool = True,
         **kwargs,
     ) -> None:
-        if sum([x == None, y == None, z == None]) != 2:
+        if sum([x is None, y is None, z is None]) != 2:
             raise BaseException("Two out of the three coordinates x-y-z must be None")
         t = max(self.snapshots.keys()) if t is None else t
         n = np.argmin(np.abs(np.array(list(self.snapshots.keys())) - t))
         t = list(self.snapshots.keys())[n]
-        if x == None and y == None:
+        if x is None and y is None:
             k = np.argmin(np.abs(self.z - z))
             z = self.z[k]
             x, y = self.x, self.y
@@ -420,7 +410,7 @@ class EulerSolver(ODE):
             z_for_plotting = np.rot90(z_for_plotting, 1)
             horizontal_axis, vertical_axis = "x", "y"
             limits = (x[0], x[-1], y[0], y[-1])
-        elif y == None and z == None:
+        elif y is None and z is None:
             i = np.argmin(np.abs(self.x - x))
             x = self.x[i]
             y, z = self.y, self.z
@@ -428,7 +418,7 @@ class EulerSolver(ODE):
             z_for_plotting = np.rot90(z_for_plotting, 1)
             horizontal_axis, vertical_axis = "y", "z"
             limits = (y[0], y[-1], z[0], z[-1])
-        elif x == None and z == None:
+        elif x is None and z is None:
             j = np.argmin(np.abs(self.y - y))
             y = self.y[j]
             z, x = self.z, self.x
@@ -437,14 +427,6 @@ class EulerSolver(ODE):
             horizontal_axis, vertical_axis = "x", "z"
             limits = (x[0], x[-1], z[0], z[-1])
         if verbose:
-            message = ", ".join(
-                [
-                    f"{m:.2f}"
-                    if (isinstance(m, int) or isinstance(m, float))
-                    else f"[{m[0]:.2f},{m[-1]:.2f}]"
-                    for m in [t, x, y, z]
-                ]
-            )
             t_message = f"{t:.2f}"
             x_message = (
                 f"{x:.2f}"

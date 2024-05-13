@@ -26,7 +26,7 @@ def sinus(
         vy (float) : uniform y-velocity
         vz (float) : uniform z-velocity
     returns:
-        out (array_like) : primitive variable intial condition, shape (5, nx, ny, nz)
+        out (array_like) : primitive variable initial condition, shape (5, nx, ny, nz)
     """
     out = np.asarray([np.empty_like(x)] * 5)
     wave_axis = np.zeros_like(x)
@@ -70,7 +70,7 @@ def square(
         vy (float) : uniform y-velocity
         vz (float) : uniform z-velocity
     returns:
-        out (array_like) : primitive variable intial condition, shape (5, nx, ny, nz)
+        out (array_like) : primitive variable initial condition, shape (5, nx, ny, nz)
     """
     out = np.asarray([np.empty_like(x)] * 5)
     inside_square = np.ones_like(x)

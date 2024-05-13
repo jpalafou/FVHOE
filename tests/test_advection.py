@@ -1,7 +1,7 @@
 from fvhoe.initial_conditions import sinus, square
 from fvhoe.solver import EulerSolver
 import pytest
-from tests.utils import mse
+from tests.test_utils import mse
 
 
 @pytest.mark.parametrize("f0", [sinus, square])
@@ -12,7 +12,7 @@ def test_1d_advection_symmetry(f0: callable, p: int, N: int = 64):
     args:
         f0 (callable) : initial condition function
         p (int) : polynomial degree along axis of interest
-        N (int) : 1D resoluton
+        N (int) : 1D resolution
     """
     solutions = {}
     for dir in ["x", "y", "z"]:

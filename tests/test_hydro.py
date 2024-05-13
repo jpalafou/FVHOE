@@ -1,7 +1,7 @@
 from fvhoe.hydro import compute_conservatives, compute_primitives
 import numpy as np
 import pytest
-from tests.utils import mse
+from tests.test_utils import mse
 from typing import Tuple
 
 
@@ -17,7 +17,7 @@ def test_transformation(
     test_number: int, f1_f2: Tuple[callable, callable], gamma: float = 5 / 3
 ):
     """
-    assert invertibility of transformatons betwen primitive and conservative variables
+    assert invertibility of transformations between primitive and conservative variables
     args:
         test_number (int) : arbitrary test label
         f1_f2 (Tuple[callable, callable]) : transformation functions like
