@@ -33,7 +33,7 @@ def conservative_interpolation(
 
     match p:
         case 0:
-            out = fvarr
+            out = fvarr.copy()
         case 1:
             if pos == "l":
                 out = (
@@ -100,7 +100,7 @@ def transverse_reconstruction(u: np.ndarray, p: int, axis: int) -> np.ndarray:
 
     match p:
         case 0:
-            out = u
+            out = u.copy()
         case 1:
             out = (
                 0 * get_slices(u, end=(0, -2))
@@ -109,16 +109,16 @@ def transverse_reconstruction(u: np.ndarray, p: int, axis: int) -> np.ndarray:
             ) / 1
         case 2:
             out = (
-                -1 * get_slices(u, end=(0, -2))
-                + 26 * get_slices(u, end=(1, -1))
-                + -1 * get_slices(u, end=(2, 0))
+                1 * get_slices(u, end=(0, -2))
+                + 22 * get_slices(u, end=(1, -1))
+                + 1 * get_slices(u, end=(2, 0))
             ) / 24
         case 3:
             out = (
                 0 * get_slices(u, end=(0, -4))
-                + -1 * get_slices(u, end=(1, -3))
-                + 26 * get_slices(u, end=(2, -2))
-                + -1 * get_slices(u, end=(3, -1))
+                + 1 * get_slices(u, end=(1, -3))
+                + 22 * get_slices(u, end=(2, -2))
+                + 1 * get_slices(u, end=(3, -1))
                 + 0 * get_slices(u, end=(4, 0))
             ) / 24
         case _:

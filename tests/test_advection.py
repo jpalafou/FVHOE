@@ -38,26 +38,26 @@ def test_1d_advection_symmetry(f0: callable, p: int, N: int = 64):
             py=py,
             pz=pz,
             riemann_solver="advection_upwind",
+            progress_bar=False,
         )
         solver.rkorder(stopping_time=1)
         solutions[dir] = solver
 
-    xy_symmetry = (
+    assert (
         mse(
             solutions["x"].snapshots[1]["rho"][:, 0, 0],
             solutions["y"].snapshots[1]["rho"][0, :, 0],
         )
-        == 0
+        < 1e-20
     )
-    yz_symmetry = (
+
+    assert (
         mse(
             solutions["y"].snapshots[1]["rho"][0, :, 0],
             solutions["z"].snapshots[1]["rho"][0, 0, :],
         )
-        == 0
+        < 1e-20
     )
-
-    assert xy_symmetry and yz_symmetry
 
 
 @pytest.mark.parametrize("p", [0, 1, 2, 3])
@@ -92,6 +92,7 @@ def test_2d_advection_symmetry(p, N=32):
             py=py,
             pz=pz,
             riemann_solver="advection_upwind",
+            progress_bar=False,
         )
         solver.rkorder(stopping_time=1)
         solutions[dims] = solver

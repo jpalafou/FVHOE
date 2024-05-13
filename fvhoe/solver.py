@@ -30,6 +30,8 @@ class EulerSolver(ODE):
         bc: str = "periodic",
         riemann_solver: str = "HLLC",
         conservative_ic: bool = False,
+        progress_bar: bool = True,
+        cupy: bool = False,
     ):
         """
         solver for Euler equations, a system of 5 variables:
@@ -56,6 +58,8 @@ class EulerSolver(ODE):
                 "advection_upwinding" : for pure advection problem
                 "HLLC" : advanced riemann solver for Euler equations
             conservative_ic (bool) : indicates that w0 returns conservative variables if true
+            progress_bar (bool) : whether to print out a progress bar
+            cupy (bool) : whether to use GPUs via the cupy library
         returns:
             EulerSolver object
         """
@@ -85,6 +89,17 @@ class EulerSolver(ODE):
             self.riemann_solver = HLLC
         elif riemann_solver == "advection_upwind":
             self.riemann_solver = advection_upwind
+        else:
+            raise TypeError(f"Invalid Riemann solver {riemann_solver}")
+
+        # GPU
+        self.cupy = cupy
+        if cupy:
+            import cupy as cp
+
+            self.xp = cp
+        else:
+            self.xp = np
 
         # integrator
         if conservative_ic:
@@ -95,16 +110,25 @@ class EulerSolver(ODE):
                 return compute_conservatives(w0(x, y, z), gamma=self.gamma)
 
         u0_fv = fv_average(f=u0, x=self.X, y=self.Y, z=self.Z, h=self.h, p=self.p)
-
-        super().__init__(u0_fv)
+        u0_fv = self.xp.asarray(u0_fv)
+        super().__init__(u0_fv, progress_bar=progress_bar)
 
     def f(self, t, u):
         return self.hydrodynamics(u)
+
+    def send_to_GPU(self):
+        self.u = self.xp.asarray(self.u)
+
+    def send_to_CPU(self):
+        self.u = self.xp.asnumpy(self.u)
 
     def snapshot(self):
         """
         save dictionary of finite volume averages at a given time to the snapshots attribute
         """
+        if self.cupy:
+            self.send_to_CPU()
+
         u = self.u
         w = compute_primitives(u, gamma=self.gamma)
 
@@ -120,6 +144,9 @@ class EulerSolver(ODE):
             "vz": w[4].copy(),
         }
         self.snapshots[self.t] = log
+
+        if self.cupy:
+            self.send_to_GPU()
 
     def interpolate_cell_centers(
         self, fvarr: np.ndarray, p: Tuple[int, int, int]
@@ -185,20 +212,20 @@ class EulerSolver(ODE):
         )
 
         # interpolate x face midpoints
-        w_xy = conservative_interpolation(w_gw, p=p[0], axis=3, pos="c")
-        w_x = conservative_interpolation(w_xy, p=p[0], axis=2, pos="c")
+        w_xy = conservative_interpolation(w_gw, p=p[2], axis=3, pos="c")
+        w_x = conservative_interpolation(w_xy, p=p[1], axis=2, pos="c")
         w_x_face_center_l = conservative_interpolation(w_x, p=p[0], axis=1, pos="l")
         w_x_face_center_r = conservative_interpolation(w_x, p=p[0], axis=1, pos="r")
 
         # interpolate y face midpoints
-        w_yz = conservative_interpolation(w_gw, p=p[1], axis=1, pos="c")
-        w_y = conservative_interpolation(w_yz, p=p[1], axis=3, pos="c")
+        w_yz = conservative_interpolation(w_gw, p=p[0], axis=1, pos="c")
+        w_y = conservative_interpolation(w_yz, p=p[2], axis=3, pos="c")
         w_y_face_center_l = conservative_interpolation(w_y, p=p[1], axis=2, pos="l")
         w_y_face_center_r = conservative_interpolation(w_y, p=p[1], axis=2, pos="r")
 
         # interpolate z face midpoints
-        w_zx = conservative_interpolation(w_gw, p=p[2], axis=2, pos="c")
-        w_z = conservative_interpolation(w_zx, p=p[2], axis=1, pos="c")
+        w_zx = conservative_interpolation(w_gw, p=p[1], axis=2, pos="c")
+        w_z = conservative_interpolation(w_zx, p=p[0], axis=1, pos="c")
         w_z_face_center_l = conservative_interpolation(w_z, p=p[2], axis=3, pos="l")
         w_z_face_center_r = conservative_interpolation(w_z, p=p[2], axis=3, pos="r")
 
@@ -226,31 +253,31 @@ class EulerSolver(ODE):
         x_excess = (
             0,
             gw - int(np.ceil(p[0] / 2)) - 1,
-            gw - 2 * int(np.ceil(p[0] / 2)),
-            gw - 2 * int(np.ceil(p[0] / 2)),
+            gw - 2 * int(np.ceil(p[1] / 2)),
+            gw - 2 * int(np.ceil(p[2] / 2)),
         )
         y_excess = (
             0,
-            gw - 2 * int(np.ceil(p[1] / 2)),
+            gw - 2 * int(np.ceil(p[0] / 2)),
             gw - int(np.ceil(p[1] / 2)) - 1,
-            gw - 2 * int(np.ceil(p[1] / 2)),
+            gw - 2 * int(np.ceil(p[2] / 2)),
         )
         z_excess = (
             0,
-            gw - 2 * int(np.ceil(p[2] / 2)),
-            gw - 2 * int(np.ceil(p[2] / 2)),
+            gw - 2 * int(np.ceil(p[0] / 2)),
+            gw - 2 * int(np.ceil(p[1] / 2)),
             gw - int(np.ceil(p[2] / 2)) - 1,
         )
 
         # flux integrals
         F = transverse_reconstruction(
-            transverse_reconstruction(f_face_center, axis=2, p=p[0]), axis=3, p=p[0]
+            transverse_reconstruction(f_face_center, axis=2, p=p[1]), axis=3, p=p[2]
         )[tuple(slice(x_excess[i] or None, -x_excess[i] or None) for i in range(4))]
         G = transverse_reconstruction(
-            transverse_reconstruction(g_face_center, axis=1, p=p[1]), axis=3, p=p[1]
+            transverse_reconstruction(g_face_center, axis=1, p=p[0]), axis=3, p=p[2]
         )[tuple(slice(y_excess[i] or None, -y_excess[i] or None) for i in range(4))]
         H = transverse_reconstruction(
-            transverse_reconstruction(h_face_center, axis=1, p=p[2]), axis=2, p=p[2]
+            transverse_reconstruction(h_face_center, axis=1, p=p[0]), axis=2, p=p[1]
         )[tuple(slice(z_excess[i] or None, -z_excess[i] or None) for i in range(4))]
 
         return F, G, H
@@ -271,11 +298,16 @@ class EulerSolver(ODE):
         c_avg = compute_sound_speed(w=w, gamma=self.gamma)
 
         # timestep size dt
-        dts = []
-        dtx = self.CFL * self.h[0] / np.max(np.abs(w[2, ...]) + c_avg)
-        dty = self.CFL * self.h[1] / np.max(np.abs(w[3, ...]) + c_avg)
-        dtz = self.CFL * self.h[2] / np.max(np.abs(w[4, ...]) + c_avg)
-        dt = np.min([dtx, dty, dtz])
+        dt = (
+            self.CFL
+            * 1
+            / np.max(
+                (np.abs(w[2, ...]) + c_avg) / self.h[0]
+                + (np.abs(w[3, ...]) + c_avg) / self.h[1]
+                + (np.abs(w[4, ...]) + c_avg) / self.h[2]
+            ).item()
+        )
+
         if dt < 0:
             raise BaseException("Negative dt encountered.")
 
