@@ -75,13 +75,18 @@ class ODE(ABC):
                 self.progress_bar.close()
 
     def integrate(
-        self, stopping_time: float, exact: bool = True, downbeats: Any = []
+        self,
+        stopping_time: float,
+        exact: bool = True,
+        downbeats: Any = [],
+        log_every_step: bool = False,
     ) -> None:
         """
         args:
             stopping_time (float) : time to simulate until
             exact (bool) : avoid overshooting the stopping time
             downbeats (iterable[float]) : extra setting for exact -> keytimes to reach exactly
+            log_every_step (bool) : take a snapshot at every step
         """
         # initialize progress bar
         self.progress_bar_action(action="setup", stopping_time=stopping_time)
@@ -108,6 +113,8 @@ class ODE(ABC):
                 # new target time
                 if self.t < stopping_time:
                     target_time = downbeats.pop(0)
+            elif log_every_step:
+                self.snapshot()
 
         # clean up progress bar
         self.progress_bar_action(action="cleanup")

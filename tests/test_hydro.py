@@ -1,7 +1,7 @@
 from fvhoe.hydro import compute_conservatives, compute_primitives
 import numpy as np
 import pytest
-from tests.test_utils import mse
+from tests.test_utils import l1err
 from typing import Tuple
 
 
@@ -26,4 +26,4 @@ def test_transformation(
     """
     f1, f2 = f1_f2
     u = 2 * np.random.rand(5, 64, 64, 64) + 1
-    assert mse(u, f1(f2(u, gamma=gamma), gamma=gamma)) < 1e-15
+    assert l1err(u, f1(f2(u, gamma=gamma), gamma=gamma)) < 1e-15

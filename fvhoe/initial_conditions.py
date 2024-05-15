@@ -84,3 +84,35 @@ def square(
     out[3] = vy
     out[4] = vz
     return out
+
+
+def slotted_disk(
+    x: np.ndarray,
+    y: np.ndarray,
+    z: np.ndarray = None,
+    rho_min_max: Tuple[float, float] = (1, 2),
+    P: float = 1,
+):
+    """
+    slotted disk revolving around (0.5, 0.5)
+    args:
+        x (array_like) : 3D mesh of x-points, shape (nx, ny, nz)
+        y (array_like) : 3D mesh of y-points, shape (nx, ny, nz)
+        z (array_like) : 3D mesh of z-points, shape (nx, ny, nz)
+        rho_min_max (Tuple[float, float]) : min density, max density
+        P (float) : uniform pressure
+    returns:
+        out (array_like) : primitive variable initial condition, shape (5, nx, ny, nz)
+    """
+    xc, yc = x - 0.5, y - 0.75
+    rsq = np.square(xc) + np.square(yc)
+    inside_disk = np.logical_and(
+        rsq < 0.15**2, np.logical_not(np.logical_and(np.abs(xc) < 0.025, y < 0.85))
+    )
+    out = np.asarray([np.empty_like(x)] * 5)
+    out[0] = np.where(inside_disk, rho_min_max[1], rho_min_max[0])
+    out[1] = P
+    out[2] = -yc
+    out[3] = xc
+    out[4] = 0
+    return out

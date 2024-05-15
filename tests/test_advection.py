@@ -1,18 +1,19 @@
 from fvhoe.initial_conditions import sinus, square
 from fvhoe.solver import EulerSolver
 import pytest
-from tests.test_utils import mse
+from tests.test_utils import l2err
 
 
 @pytest.mark.parametrize("f0", [sinus, square])
 @pytest.mark.parametrize("p", [0, 1, 2, 3])
-def test_1d_advection_symmetry(f0: callable, p: int, N: int = 64):
+def test_1d_advection_symmetry(f0: callable, p: int, N: int = 64, t: float = 0.05):
     """
     assert symmetry of 3D solver along 3 directions
     args:
         f0 (callable) : initial condition function
         p (int) : polynomial degree along axis of interest
         N (int) : 1D resolution
+        t (float) : time to solve up until
     """
     solutions = {}
     for dir in ["x", "y", "z"]:
@@ -40,33 +41,47 @@ def test_1d_advection_symmetry(f0: callable, p: int, N: int = 64):
             riemann_solver="advection_upwind",
             progress_bar=False,
         )
-        solver.rkorder(stopping_time=1)
+        solver.rkorder(stopping_time=t)
         solutions[dir] = solver
 
-    assert (
-        mse(
-            solutions["x"].snapshots[1]["rho"][:, 0, 0],
-            solutions["y"].snapshots[1]["rho"][0, :, 0],
-        )
-        < 1e-20
+    xyerr0 = l2err(
+        solutions["x"].snapshots[0]["rho"][:, 0, 0],
+        solutions["y"].snapshots[0]["rho"][0, :, 0],
+    )
+    yzerr0 = l2err(
+        solutions["y"].snapshots[0]["rho"][0, :, 0],
+        solutions["z"].snapshots[0]["rho"][0, 0, :],
     )
 
-    assert (
-        mse(
-            solutions["y"].snapshots[1]["rho"][0, :, 0],
-            solutions["z"].snapshots[1]["rho"][0, 0, :],
-        )
-        < 1e-20
+    print(f"{xyerr0=}, {yzerr0=}")
+
+    xyerr = l2err(
+        solutions["x"].snapshots[t]["rho"][:, 0, 0],
+        solutions["y"].snapshots[t]["rho"][0, :, 0],
     )
+    yzerr = l2err(
+        solutions["y"].snapshots[t]["rho"][0, :, 0],
+        solutions["z"].snapshots[t]["rho"][0, 0, :],
+    )
+
+    print(f"{xyerr=}, {yzerr=}")
+
+    print(f"{solutions['x'].timestamps=}")
+    print(f"{solutions['y'].timestamps=}")
+    print(f"{solutions['z'].timestamps=}")
+
+    assert xyerr < 1e-20
+    assert yzerr < 1e-20
 
 
 @pytest.mark.parametrize("p", [0, 1, 2, 3])
-def test_2d_advection_symmetry(p, N=32):
+def test_2d_advection_symmetry(p, N=32, t: float = 0.02):
     """
     assert symmetry of 3D solver along 3 planes
     args:
         p (int) : polynomial interpolation degree along axes of interest
         N (int) : 2D resolution
+        t (float) : time to solve up until
     """
     solutions = {}
     for dims in ["xy", "yz", "zx"]:
@@ -94,21 +109,34 @@ def test_2d_advection_symmetry(p, N=32):
             riemann_solver="advection_upwind",
             progress_bar=False,
         )
-        solver.rkorder(stopping_time=1)
+        solver.rkorder(stopping_time=t)
         solutions[dims] = solver
 
-    assert (
-        mse(
-            solutions["xy"].snapshots[1]["rho"][:, :, 0],
-            solutions["yz"].snapshots[1]["rho"][0, :, :],
-        )
-        < 1e-20
+    xy_yz_err0 = l2err(
+        solutions["xy"].snapshots[0]["rho"][:, :, 0],
+        solutions["yz"].snapshots[0]["rho"][0, :, :],
+    )
+    yz_zx_err0 = l2err(
+        solutions["yz"].snapshots[0]["rho"][0, :, :],
+        solutions["zx"].snapshots[0]["rho"][:, 0, :],
     )
 
-    assert (
-        mse(
-            solutions["yz"].snapshots[1]["rho"][0, :, :],
-            solutions["zx"].snapshots[1]["rho"][:, 0, :],
-        )
-        < 1e-20
+    print(f"{xy_yz_err0=}, {yz_zx_err0=}")
+
+    xy_yz_err = l2err(
+        solutions["xy"].snapshots[t]["rho"][:, :, 0],
+        solutions["yz"].snapshots[t]["rho"][0, :, :],
     )
+    yz_zx_err = l2err(
+        solutions["yz"].snapshots[t]["rho"][0, :, :],
+        solutions["zx"].snapshots[t]["rho"][:, 0, :],
+    )
+
+    print(f"{xy_yz_err=}, {yz_zx_err=}")
+
+    print(f"{solutions['xy'].timestamps=}")
+    print(f"{solutions['yz'].timestamps=}")
+    print(f"{solutions['zx'].timestamps=}")
+
+    assert xy_yz_err < 1e-20
+    assert yz_zx_err < 1e-20

@@ -7,7 +7,7 @@ from fvhoe.hydro import (
 )
 from fvhoe.ode import ODE
 from fvhoe.riemann_solvers import advection_upwind, HLLC
-from typing import Tuple
+from typing import Any, Tuple
 
 
 class EulerSolver(ODE):
@@ -26,6 +26,27 @@ class EulerSolver(ODE):
         CFL: float = 0.8,
         gamma: float = 5 / 3,
         bc: str = "periodic",
+        bc_x: str = "periodic",
+        bc_y: str = "periodic",
+        bc_z: str = "periodic",
+        bc_const_x: Tuple[
+            Tuple[float, float],
+            Tuple[float, float],
+            Tuple[float, float],
+            Tuple[float, float],
+            Tuple[float, float],
+        ] = None,
+        bc_const_y: Any = None,
+        bc_const_z: Any = None,
+        bc_grad_x: Tuple[
+            Tuple[float, float],
+            Tuple[float, float],
+            Tuple[float, float],
+            Tuple[float, float],
+            Tuple[float, float],
+        ] = None,
+        bc_grad_y: Any = None,
+        bc_grad_z: Any = None,
         riemann_solver: str = "HLLC",
         conservative_ic: bool = False,
         progress_bar: bool = True,
@@ -50,8 +71,19 @@ class EulerSolver(ODE):
             z (Tuple[float, float]) : z domain bounds (z1, z2)
             CFL (float) : Courant-Friedrichs-Lewy condition
             gamma (float) : specific heat ratio
-            bc (str) : boundary condition type
+            bc_x (str) : boundary condition type in x-direciton
                 "periodic" : periodic boundary condition
+                "dirichlet" : dirichlet boundary condition at both ends
+                "neumann" : neumann boundary condition at both ends
+                "{bc_l}-{bc_r}" : one boundary type on the left, another on the right
+            bc_y (str) : boundary condition type in y-direciton
+            bc_z (str) : boundary condition type in z-direciton
+            bc_const_x (Tuple[Tuple[float, float]]*5) : ((rho_l, rho_r), (P_l, P_r), ...)
+            bc_const_y (...) : ...
+            bc_const_z (...) : ...
+            bc_grad_x (Tuple[Tuple[float, float]]*5) : ((d{rho}dx_l, ...), ...)
+            bc_grad_y (...) : ...
+            bc_grad_z (...) : ...
             riemann_solver (str) : riemann solver code
                 "advection_upwinding" : for pure advection problem
                 "HLLC" : advanced riemann solver for Euler equations
@@ -81,6 +113,8 @@ class EulerSolver(ODE):
 
         # physics
         self.gamma = gamma
+
+        # boundary conditions
 
         # riemann solver
         if riemann_solver == "HLLC":
