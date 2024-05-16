@@ -1,3 +1,4 @@
+from fvhoe.hydro import advection_dt
 from fvhoe.initial_conditions import sinus, square
 from fvhoe.solver import EulerSolver
 import pytest
@@ -6,7 +7,7 @@ from tests.test_utils import l2err
 
 @pytest.mark.parametrize("f0", [sinus, square])
 @pytest.mark.parametrize("p", [0, 1, 2, 3])
-def test_1d_advection_symmetry(f0: callable, p: int, N: int = 64, t: float = 0.05):
+def test_1d_advection_symmetry(f0: callable, p: int, N: int = 64, t: float = 1):
     """
     assert symmetry of 3D solver along 3 directions
     args:
@@ -40,20 +41,10 @@ def test_1d_advection_symmetry(f0: callable, p: int, N: int = 64, t: float = 0.0
             pz=pz,
             riemann_solver="advection_upwind",
             progress_bar=False,
+            fixed_dt=advection_dt(hx=1 / N, vx=1),
         )
         solver.rkorder(stopping_time=t)
         solutions[dir] = solver
-
-    xyerr0 = l2err(
-        solutions["x"].snapshots[0]["rho"][:, 0, 0],
-        solutions["y"].snapshots[0]["rho"][0, :, 0],
-    )
-    yzerr0 = l2err(
-        solutions["y"].snapshots[0]["rho"][0, :, 0],
-        solutions["z"].snapshots[0]["rho"][0, 0, :],
-    )
-
-    print(f"{xyerr0=}, {yzerr0=}")
 
     xyerr = l2err(
         solutions["x"].snapshots[t]["rho"][:, 0, 0],
@@ -64,18 +55,12 @@ def test_1d_advection_symmetry(f0: callable, p: int, N: int = 64, t: float = 0.0
         solutions["z"].snapshots[t]["rho"][0, 0, :],
     )
 
-    print(f"{xyerr=}, {yzerr=}")
-
-    print(f"{solutions['x'].timestamps=}")
-    print(f"{solutions['y'].timestamps=}")
-    print(f"{solutions['z'].timestamps=}")
-
-    assert xyerr < 1e-20
-    assert yzerr < 1e-20
+    assert xyerr == 0
+    assert yzerr == 0
 
 
 @pytest.mark.parametrize("p", [0, 1, 2, 3])
-def test_2d_advection_symmetry(p, N=32, t: float = 0.02):
+def test_2d_advection_symmetry(p, N=32, t: float = 1):
     """
     assert symmetry of 3D solver along 3 planes
     args:
@@ -108,20 +93,10 @@ def test_2d_advection_symmetry(p, N=32, t: float = 0.02):
             pz=pz,
             riemann_solver="advection_upwind",
             progress_bar=False,
+            fixed_dt=advection_dt(hx=1 / N, hy=1 / N, vx=2, vy=1),
         )
         solver.rkorder(stopping_time=t)
         solutions[dims] = solver
-
-    xy_yz_err0 = l2err(
-        solutions["xy"].snapshots[0]["rho"][:, :, 0],
-        solutions["yz"].snapshots[0]["rho"][0, :, :],
-    )
-    yz_zx_err0 = l2err(
-        solutions["yz"].snapshots[0]["rho"][0, :, :],
-        solutions["zx"].snapshots[0]["rho"][:, 0, :],
-    )
-
-    print(f"{xy_yz_err0=}, {yz_zx_err0=}")
 
     xy_yz_err = l2err(
         solutions["xy"].snapshots[t]["rho"][:, :, 0],
@@ -132,11 +107,5 @@ def test_2d_advection_symmetry(p, N=32, t: float = 0.02):
         solutions["zx"].snapshots[t]["rho"][:, 0, :],
     )
 
-    print(f"{xy_yz_err=}, {yz_zx_err=}")
-
-    print(f"{solutions['xy'].timestamps=}")
-    print(f"{solutions['yz'].timestamps=}")
-    print(f"{solutions['zx'].timestamps=}")
-
-    assert xy_yz_err < 1e-20
-    assert yz_zx_err < 1e-20
+    assert xy_yz_err == 0
+    assert yz_zx_err == 0

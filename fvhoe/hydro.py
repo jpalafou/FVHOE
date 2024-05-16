@@ -95,3 +95,29 @@ def compute_fluxes(u: np.ndarray, w: np.ndarray, gamma: float, dir: str) -> np.n
         H[1, ...] = w[4, ...] * (u[1, ...] + w[1, ...])  # w (E + p)
         out = H
     return out
+
+
+def advection_dt(
+    hx: float,
+    vx: float,
+    C: float = 0.8,
+    hy: float = 1.0,
+    hz: float = 1.0,
+    vy: float = 0.0,
+    vz: float = 0.0,
+) -> float:
+    """
+    get time-step size satisfying a CFL for an advection problem
+    args:
+        hx (float) : mesh spacing in x-direction
+        vx (float) : maximum advection velocity in x-direction
+        C (float) : Courant-Friedrichs-Lewy condition
+        hy (float) : mesh spacing in y-direction
+        vy (float) : maximum advection velocity in y-direction
+        hz (float) : mesh spacing in z-direction
+        vz (float) : maximum advection velocity in z-direction
+    returns:
+        out (float) : time-step size satisfying CFL
+    """
+    out = C / (np.abs(vx / hx) + np.abs(vy / hy) + np.abs(vz / hz))
+    return out

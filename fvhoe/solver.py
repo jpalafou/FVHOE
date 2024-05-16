@@ -24,6 +24,7 @@ class EulerSolver(ODE):
         y: Tuple[float, float] = (0, 1),
         z: Tuple[float, float] = (0, 1),
         CFL: float = 0.8,
+        fixed_dt: float = None,
         gamma: float = 5 / 3,
         bc: str = "periodic",
         bc_x: str = "periodic",
@@ -70,6 +71,7 @@ class EulerSolver(ODE):
             y (Tuple[float, float]) : y domain bounds (y1, y2)
             z (Tuple[float, float]) : z domain bounds (z1, z2)
             CFL (float) : Courant-Friedrichs-Lewy condition
+            fixed_dt (float) : use this constant time-step size if it isn't defined as None
             gamma (float) : specific heat ratio
             bc_x (str) : boundary condition type in x-direciton
                 "periodic" : periodic boundary condition
@@ -109,6 +111,7 @@ class EulerSolver(ODE):
         self.h = hx, hy, hz
         self.p = px, py, pz
         self.CFL = CFL
+        self.fixed_dt = fixed_dt
         self.bc = bc
 
         # physics
@@ -330,15 +333,18 @@ class EulerSolver(ODE):
         c_avg = compute_sound_speed(w=w, gamma=self.gamma)
 
         # timestep size dt
-        dt = (
-            self.CFL
-            * 1
-            / np.max(
-                (np.abs(w[2, ...]) + c_avg) / self.h[0]
-                + (np.abs(w[3, ...]) + c_avg) / self.h[1]
-                + (np.abs(w[4, ...]) + c_avg) / self.h[2]
-            ).item()
-        )
+        if self.fixed_dt is None:
+            dt = (
+                self.CFL
+                * 1
+                / np.max(
+                    (np.abs(w[2, ...]) + c_avg) / self.h[0]
+                    + (np.abs(w[3, ...]) + c_avg) / self.h[1]
+                    + (np.abs(w[4, ...]) + c_avg) / self.h[2]
+                ).item()
+            )
+        else:
+            dt = self.fixed_dt
 
         if dt < 0:
             raise BaseException("Negative dt encountered.")
