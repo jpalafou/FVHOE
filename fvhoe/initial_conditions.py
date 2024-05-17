@@ -1,3 +1,5 @@
+from fvhoe.config import primitive_names
+from fvhoe.named_array import NamedNumpyArray
 import numpy as np
 from typing import Tuple
 
@@ -12,7 +14,7 @@ def sinus(
     vx: float = 1,
     vy: float = 0,
     vz: float = 0,
-):
+) -> NamedNumpyArray:
     """
     smooth density sine wave initial condition for advection
     args:
@@ -26,23 +28,27 @@ def sinus(
         vy (float) : uniform y-velocity
         vz (float) : uniform z-velocity
     returns:
-        out (array_like) : primitive variable initial condition, shape (5, nx, ny, nz)
+        out (NamedNumpyArray) : has variable names ["rho", "vx", "vy", "vz", "P"]
     """
-    out = np.asarray([np.empty_like(x)] * 5)
+    out = NamedNumpyArray(np.asarray([np.empty_like(x)] * 5), primitive_names)
+
+    # assign density
     wave_axis = np.zeros_like(x)
     for dim_name, dim_arr in zip(["x", "y", "z"], [x, y, z]):
         if dim_name in dims:
             wave_axis += dim_arr
     density_range = rho_min_max[1] - rho_min_max[0]
-    out[0] = (
+    out.rho = (
         0.5 * density_range * np.sin(2 * np.pi * wave_axis)
         + 0.5 * density_range
         + rho_min_max[0]
     )
-    out[1] = P
-    out[2] = vx
-    out[3] = vy
-    out[4] = vz
+
+    # assign other variables
+    out.P = P
+    out.vx = vx
+    out.vy = vy
+    out.vz = vz
     return out
 
 
@@ -56,7 +62,7 @@ def square(
     vx: float = 1,
     vy: float = 0,
     vz: float = 0,
-):
+) -> NamedNumpyArray:
     """
     discontinuous density square initial condition for advection
     args:
@@ -70,9 +76,11 @@ def square(
         vy (float) : uniform y-velocity
         vz (float) : uniform z-velocity
     returns:
-        out (array_like) : primitive variable initial condition, shape (5, nx, ny, nz)
+        out (NamedNumpyArray) : has variable names ["rho", "vx", "vy", "vz", "P"]
     """
-    out = np.asarray([np.empty_like(x)] * 5)
+    out = NamedNumpyArray(np.asarray([np.empty_like(x)] * 5), primitive_names)
+
+    # assign density
     inside_square = np.ones_like(x)
     for dim_name, dim_arr in zip(["x", "y", "z"], [x, y, z]):
         if dim_name in dims:
@@ -92,7 +100,7 @@ def slotted_disk(
     z: np.ndarray = None,
     rho_min_max: Tuple[float, float] = (1, 2),
     P: float = 1,
-):
+) -> NamedNumpyArray:
     """
     slotted disk revolving around (0.5, 0.5)
     args:
@@ -102,17 +110,21 @@ def slotted_disk(
         rho_min_max (Tuple[float, float]) : min density, max density
         P (float) : uniform pressure
     returns:
-        out (array_like) : primitive variable initial condition, shape (5, nx, ny, nz)
+        out (NamedNumpyArray) : has variable names ["rho", "vx", "vy", "vz", "P"]
     """
+    out = NamedNumpyArray(np.asarray([np.empty_like(x)] * 5), primitive_names)
+
+    # density and velocity
     xc, yc = x - 0.5, y - 0.75
     rsq = np.square(xc) + np.square(yc)
     inside_disk = np.logical_and(
         rsq < 0.15**2, np.logical_not(np.logical_and(np.abs(xc) < 0.025, y < 0.85))
     )
-    out = np.asarray([np.empty_like(x)] * 5)
-    out[0] = np.where(inside_disk, rho_min_max[1], rho_min_max[0])
-    out[1] = P
-    out[2] = -yc
-    out[3] = xc
-    out[4] = 0
+    out.rho = np.where(inside_disk, rho_min_max[1], rho_min_max[0])
+    out.vx = -yc
+    out.vy = xc
+    out.vz = 0
+
+    # other variables
+    out.P = P
     return out

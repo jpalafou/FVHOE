@@ -1,99 +1,76 @@
+from fvhoe.named_array import NamedNumpyArray
 import numpy as np
 
 
-def compute_primitives(u: np.ndarray, gamma: float) -> np.ndarray:
+def compute_primitives(u: NamedNumpyArray, gamma: float) -> NamedNumpyArray:
     """
     args:
-        u (array_like) : array of conservative variables
-            density, energy, x-momentum, y-momentum, z-momentum
+        u (NamedArray) : has variables names ["rho", "px", "py", "pz", "E"]
         gamma (float) : specific heat ratio
     returns:
-        w (array_like) : array of primitive variables
-            density, pressure, x-velocity, y-velocity, z-velocity
+        w (NamedArray) : has variables names ["rho", "vx", "vy", "vz", "P"]
     """
-    w = np.empty_like(u)
-    w[0, ...] = u[0, ...]  # density
-    w[2, ...] = u[2, ...] / u[0, ...]  # x-velocity
-    w[3, ...] = u[3, ...] / u[0, ...]  # y-velocity
-    w[4, ...] = u[4, ...] / u[0, ...]  # z-velocity
-    w[1, ...] = (gamma - 1) * (
-        u[1, ...]
-        - 0.5 * (w[2, ...] * u[2, ...] + w[3, ...] * u[3, ...] + w[4, ...] * u[4, ...])
-    )  # pressure
+    w = u.copy()
+    w.rename_variables({"px": "vx", "py": "vy", "pz": "vz", "E": "P"})
+    w.rho = u.rho
+    w.vx = u.px / u.rho
+    w.vy = u.py / u.rho
+    w.vz = u.pz / u.rho
+    w.P = (gamma - 1) * (u.E - 0.5 * (u.px * w.vx + u.py * w.vy + u.pz * w.vz))
     return w
 
 
-def compute_conservatives(w: np.ndarray, gamma: float) -> np.ndarray:
+def compute_conservatives(w: NamedNumpyArray, gamma: float) -> NamedNumpyArray:
     """
     args:
-        w (array_like) : array of primitive variables
-            density, pressure, x-velocity, y-velocity, z-velocity
+        w (NamedArray) : has variables names ["rho", "vx", "vy", "vz", "P"]
         gamma (float) : specific heat ratio
     returns:
-        u (array_like) : array of conservative variables
-            density, energy, x-momentum, y-momentum, z-momentum
+        u (NamedArray) : has variables names ["rho", "px", "py", "pz", "E"]
     """
-    u = np.empty_like(w)
-    u[0, ...] = w[0, ...]  # density
-    u[2, ...] = w[0, ...] * w[2, ...]  # x-momentum
-    u[3, ...] = w[0, ...] * w[3, ...]  # y-momentum
-    u[4, ...] = w[0, ...] * w[4, ...]  # z-momentum
-    u[1, ...] = w[1, ...] / (gamma - 1) + 0.5 * (
-        w[2, ...] * u[2, ...] + w[3, ...] * u[3, ...] + w[4, ...] * u[4, ...]
-    )  # energy
+    u = w.copy()
+    u.rename_variables({"vx": "px", "vy": "py", "vz": "pz", "P": "E"})
+    u.rho = w.rho
+    u.px = w.rho * w.vx
+    u.py = w.rho * w.vy
+    u.pz = w.rho * w.vz
+    u.E = w.P / (gamma - 1) + 0.5 * (u.px * w.vx + u.py * w.vy + u.pz * w.vz)
     return u
 
 
-def compute_sound_speed(w: np.ndarray, gamma: float) -> np.ndarray:
+def compute_sound_speed(w: NamedNumpyArray, gamma: float) -> np.ndarray:
     """
     args:
-        w (array_like) : array of primitive variables
-            density, pressure, x-velocity, y-velocity, z-velocity
+        w (NamedArray) : has variables names ["rho", "P"]
+        gamma (float) : specific heat ratio
     returns:
-        out (array_like) : sound speed
+        out (array_like) : sound speeds
     """
-    out = np.sqrt(gamma * w[1, ...] / w[0, ...])
+    out = np.sqrt(gamma * w.P / w.rho)
     return out
 
 
-def compute_fluxes(u: np.ndarray, w: np.ndarray, gamma: float, dir: str) -> np.ndarray:
+def compute_fluxes(
+    u: NamedNumpyArray, w: NamedNumpyArray, gamma: float, dim: str
+) -> NamedNumpyArray:
     """
     Riemann Solvers and Numerical Methods for Fluid Dynamics by Toro
     Page 3
     args:
-        u (array_like) : array of conservative variables
-            density, energy, x-momentum, y-momentum, z-momentum
-        w (array_like) : array of primitive variables
-            density, pressure, x-velocity, y-velocity, z-velocity
+        u (array_like) : has variables names ["rho", "px", "py", "pz", "E"]
+        w (array_like) : has variables names ["rho", "vx", "vy", "vz", "P"]
         gamma (float) : specific heat ratio
-        dir (str) : "x", "y", "z"
+        dim (str) : "x", "y", "z"
     returns:
-        out (array_like) : fluxes in specified direction
+        out (array_like) : fluxes in specified direction, has variables names ["rho", "px", "py", "pz", "E"]
     """
-    if dir == "x":
-        F = np.empty_like(w)
-        F[0, ...] = u[2, ...]  # rho u
-        F[2, ...] = w[2, ...] * u[2, ...] + w[1, ...]  # rho u^2 + p
-        F[3, ...] = w[3, ...] * u[2, ...]  # rho u v
-        F[4, ...] = w[4, ...] * u[2, ...]  # rho u w
-        F[1, ...] = w[2, ...] * (u[1, ...] + w[1, ...])  # u (E + p)
-        out = F
-    elif dir == "y":
-        G = np.empty_like(w)
-        G[0, ...] = u[3, ...]  # rho v
-        G[2, ...] = w[2, ...] * u[3, ...]  # rho u v
-        G[3, ...] = w[3, ...] * u[3, ...] + w[1, ...]  # rho v^2 + p
-        G[4, ...] = w[4, ...] * u[3, ...]  # rho v w
-        G[1, ...] = w[3, ...] * (u[1, ...] + w[1, ...])  # v (E + p)
-        out = G
-    elif dir == "z":
-        H = np.empty_like(w)
-        H[0, ...] = u[4, ...]  # rho w
-        H[2, ...] = w[2, ...] * u[4, ...]  # rho u w
-        H[3, ...] = w[3, ...] * u[4, ...]  # rho v w
-        H[4, ...] = w[4, ...] * u[4, ...] + w[1, ...]  # rho w^2 + p
-        H[1, ...] = w[4, ...] * (u[1, ...] + w[1, ...])  # w (E + p)
-        out = H
+    out = u.copy()
+    p = getattr(u, "p" + dim)  # momentum in dim-direction
+    out.rho = p
+    out.px = p * w.vx + (w.p if dim == "x" else 0.0)
+    out.py = p * w.vy + (w.p if dim == "y" else 0.0)
+    out.pz = p * w.vz + (w.p if dim == "z" else 0.0)
+    out.E = p * (u.E + w.P)
     return out
 
 

@@ -1,29 +1,38 @@
+from fvhoe.config import conservative_names, primitive_names
 from fvhoe.hydro import compute_conservatives, compute_primitives
+from fvhoe.named_array import NamedNumpyArray
 import numpy as np
 import pytest
 from tests.test_utils import l1err
-from typing import Tuple
 
 
 @pytest.mark.parametrize("test_number", range(5))
-@pytest.mark.parametrize(
-    "f1_f2",
-    [
-        (compute_primitives, compute_conservatives),
-        (compute_conservatives, compute_primitives),
-    ],
-)
-def test_transformation(
-    test_number: int, f1_f2: Tuple[callable, callable], gamma: float = 5 / 3
+def test_conservative_to_primitive_invertibility(
+    test_number: int, gamma: float = 5 / 3
+):
+    """
+    assert invertibility of transformations between conservative and primitive variables
+    args:
+        test_number (int) : arbitrary test label
+        gamma (float) : specific heat ratio
+    """
+    data = 2 * np.random.rand(5, 64, 64, 64) + 1
+    u1 = NamedNumpyArray(data, conservative_names)
+    u2 = compute_conservatives(compute_primitives(u1, gamma=gamma), gamma=gamma)
+    assert l1err(u1.E, u2.E) < 1e-15
+
+
+@pytest.mark.parametrize("test_number", range(5))
+def test_primitive_to_conservative_invertibility(
+    test_number: int, gamma: float = 5 / 3
 ):
     """
     assert invertibility of transformations between primitive and conservative variables
     args:
         test_number (int) : arbitrary test label
-        f1_f2 (Tuple[callable, callable]) : transformation functions like
-            compute_conservatives and compute_primitives
         gamma (float) : specific heat ratio
     """
-    f1, f2 = f1_f2
-    u = 2 * np.random.rand(5, 64, 64, 64) + 1
-    assert l1err(u, f1(f2(u, gamma=gamma), gamma=gamma)) < 1e-15
+    data = 2 * np.random.rand(5, 64, 64, 64) + 1
+    w1 = NamedNumpyArray(data, primitive_names)
+    w2 = compute_primitives(compute_conservatives(w1, gamma=gamma), gamma=gamma)
+    assert l1err(w1.P, w2.P) < 1e-15

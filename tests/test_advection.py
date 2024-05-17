@@ -17,20 +17,20 @@ def test_1d_advection_symmetry(f0: callable, p: int, N: int = 64, t: float = 1):
         t (float) : time to solve up until
     """
     solutions = {}
-    for dir in ["x", "y", "z"]:
+    for dim in ["x", "y", "z"]:
 
         def directional_f0(x, y, z):
-            vx = {"x": 1, "y": 0, "z": 0}[dir]
-            vy = {"x": 0, "y": 1, "z": 0}[dir]
-            vz = {"x": 0, "y": 0, "z": 1}[dir]
-            return f0(x, y, z, dims=dir, vx=vx, vy=vy, vz=vz)
+            vx = {"x": 1, "y": 0, "z": 0}[dim]
+            vy = {"x": 0, "y": 1, "z": 0}[dim]
+            vz = {"x": 0, "y": 0, "z": 1}[dim]
+            return f0(x, y, z, dims=dim, vx=vx, vy=vy, vz=vz)
 
-        nx = {"x": N, "y": 1, "z": 1}[dir]
-        ny = {"x": 1, "y": N, "z": 1}[dir]
-        nz = {"x": 1, "y": 1, "z": N}[dir]
-        px = {"x": p, "y": 0, "z": 0}[dir]
-        py = {"x": 0, "y": p, "z": 0}[dir]
-        pz = {"x": 0, "y": 0, "z": p}[dir]
+        nx = {"x": N, "y": 1, "z": 1}[dim]
+        ny = {"x": 1, "y": N, "z": 1}[dim]
+        nz = {"x": 1, "y": 1, "z": N}[dim]
+        px = {"x": p, "y": 0, "z": 0}[dim]
+        py = {"x": 0, "y": p, "z": 0}[dim]
+        pz = {"x": 0, "y": 0, "z": p}[dim]
         solver = EulerSolver(
             w0=directional_f0,
             nx=nx,
@@ -44,15 +44,15 @@ def test_1d_advection_symmetry(f0: callable, p: int, N: int = 64, t: float = 1):
             fixed_dt=advection_dt(hx=1 / N, vx=1),
         )
         solver.rkorder(stopping_time=t)
-        solutions[dir] = solver
+        solutions[dim] = solver
 
     xyerr = l2err(
-        solutions["x"].snapshots[t]["rho"][:, 0, 0],
-        solutions["y"].snapshots[t]["rho"][0, :, 0],
+        solutions["x"].snapshots[-1]["fv"].rho[:, 0, 0],
+        solutions["y"].snapshots[-1]["fv"].rho[0, :, 0],
     )
     yzerr = l2err(
-        solutions["y"].snapshots[t]["rho"][0, :, 0],
-        solutions["z"].snapshots[t]["rho"][0, 0, :],
+        solutions["y"].snapshots[-1]["fv"].rho[0, :, 0],
+        solutions["z"].snapshots[-1]["fv"].rho[0, 0, :],
     )
 
     assert xyerr == 0
@@ -99,12 +99,12 @@ def test_2d_advection_symmetry(p, N=32, t: float = 1):
         solutions[dims] = solver
 
     xy_yz_err = l2err(
-        solutions["xy"].snapshots[t]["rho"][:, :, 0],
-        solutions["yz"].snapshots[t]["rho"][0, :, :],
+        solutions["xy"].snapshots[-1]["fv"].rho[:, :, 0],
+        solutions["yz"].snapshots[-1]["fv"].rho[0, :, :],
     )
     yz_zx_err = l2err(
-        solutions["yz"].snapshots[t]["rho"][0, :, :],
-        solutions["zx"].snapshots[t]["rho"][:, 0, :],
+        solutions["yz"].snapshots[-1]["fv"].rho[0, :, :],
+        solutions["zx"].snapshots[-1]["fv"].rho[:, 0, :],
     )
 
     assert xy_yz_err == 0

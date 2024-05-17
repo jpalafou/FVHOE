@@ -31,7 +31,12 @@ class ODE(ABC):
         self.u = u0
         self.t = 0
         self.timestamps = [0]
-        self.snapshots = {}
+
+        # snapshots
+        self.snapshots = []
+        self.snapshot_times = []
+
+        # progress bar
         self.print_progress_bar = True if progress_bar else False
 
     @abstractmethod
@@ -55,7 +60,8 @@ class ODE(ABC):
         """
         overwrite to log more data
         """
-        self.snapshots[self.t] = None
+        self.snapshots.append(None)
+        self.snapshot_times.append(self.t)
 
     def progress_bar_action(self, action: str, stopping_time: float = None):
         """

@@ -1,13 +1,15 @@
 import numpy as np
+from fvhoe.boundary_conditions import BoundaryCondition
 from fvhoe.fv import fv_average, conservative_interpolation, transverse_reconstruction
 from fvhoe.hydro import (
     compute_conservatives,
     compute_primitives,
     compute_sound_speed,
 )
+from fvhoe.named_array import NamedCupyArray, NamedNumpyArray
 from fvhoe.ode import ODE
 from fvhoe.riemann_solvers import advection_upwind, HLLC
-from typing import Any, Tuple
+from typing import Tuple
 
 
 class EulerSolver(ODE):
@@ -26,28 +28,7 @@ class EulerSolver(ODE):
         CFL: float = 0.8,
         fixed_dt: float = None,
         gamma: float = 5 / 3,
-        bc: str = "periodic",
-        bc_x: str = "periodic",
-        bc_y: str = "periodic",
-        bc_z: str = "periodic",
-        bc_const_x: Tuple[
-            Tuple[float, float],
-            Tuple[float, float],
-            Tuple[float, float],
-            Tuple[float, float],
-            Tuple[float, float],
-        ] = None,
-        bc_const_y: Any = None,
-        bc_const_z: Any = None,
-        bc_grad_x: Tuple[
-            Tuple[float, float],
-            Tuple[float, float],
-            Tuple[float, float],
-            Tuple[float, float],
-            Tuple[float, float],
-        ] = None,
-        bc_grad_y: Any = None,
-        bc_grad_z: Any = None,
+        bc: BoundaryCondition = None,
         riemann_solver: str = "HLLC",
         conservative_ic: bool = False,
         progress_bar: bool = True,
@@ -62,30 +43,22 @@ class EulerSolver(ODE):
             vz (z-velocity)
         implemented in 1D, 2D, and 3D
         args:
-            w0(X, Y, Z) (callable) : function of a 3D mesh. returns array_like of shape
+            w0(X, Y, Z) (callable) : function of a 3D mesh. returns NamedArray of shape
                 (5, nz, ny, nz)
             nx (int) : number of cells along x-direction. ignore by setting nx=1, px=0
             ny (int) : number of cells along y-direction. ignore by setting ny=1, py=0
             nz (int) : number of cells along z-direction. ignore by setting nz=1, pz=0
+            px (int) : polynomial degree along x-direction
+            py (int) : polynomial degree along y-direction
+            pz (int) : polynomial degree along z-direction
             x (Tuple[float, float]) : x domain bounds (x1, x2)
             y (Tuple[float, float]) : y domain bounds (y1, y2)
             z (Tuple[float, float]) : z domain bounds (z1, z2)
             CFL (float) : Courant-Friedrichs-Lewy condition
-            fixed_dt (float) : use this constant time-step size if it isn't defined as None
+            fixed_dt (float) : ignore CFL and use this constant time-step size if it isn't defined as None
             gamma (float) : specific heat ratio
-            bc_x (str) : boundary condition type in x-direciton
-                "periodic" : periodic boundary condition
-                "dirichlet" : dirichlet boundary condition at both ends
-                "neumann" : neumann boundary condition at both ends
-                "{bc_l}-{bc_r}" : one boundary type on the left, another on the right
-            bc_y (str) : boundary condition type in y-direciton
-            bc_z (str) : boundary condition type in z-direciton
-            bc_const_x (Tuple[Tuple[float, float]]*5) : ((rho_l, rho_r), (P_l, P_r), ...)
-            bc_const_y (...) : ...
-            bc_const_z (...) : ...
-            bc_grad_x (Tuple[Tuple[float, float]]*5) : ((d{rho}dx_l, ...), ...)
-            bc_grad_y (...) : ...
-            bc_grad_z (...) : ...
+            bc (BoundaryCondition) : boundary condition instance for primitive variables
+                None : apply periodic boundaries
             riemann_solver (str) : riemann solver code
                 "advection_upwinding" : for pure advection problem
                 "HLLC" : advanced riemann solver for Euler equations
@@ -107,17 +80,14 @@ class EulerSolver(ODE):
         hx = (x[1] - x[0]) / nx
         hy = (y[1] - y[0]) / ny
         hz = (z[1] - z[0]) / nz
-        self.n = nx, ny, nz
-        self.h = hx, hy, hz
-        self.p = px, py, pz
+        self.n = (nx, ny, nz)
+        self.h = (hx, hy, hz)
+        self.p = (px, py, pz)
         self.CFL = CFL
         self.fixed_dt = fixed_dt
-        self.bc = bc
 
         # physics
         self.gamma = gamma
-
-        # boundary conditions
 
         # riemann solver
         if riemann_solver == "HLLC":
@@ -129,12 +99,12 @@ class EulerSolver(ODE):
 
         # GPU
         self.cupy = cupy
-        if cupy:
-            import cupy as cp
+        self.NamedArray = NamedCupyArray if cupy else NamedNumpyArray
 
-            self.xp = cp
-        else:
-            self.xp = np
+        # boundary conditions
+        self.bc = (
+            bc if bc is not None else BoundaryCondition(NamedArray=self.NamedArray)
+        )
 
         # integrator
         if conservative_ic:
@@ -145,43 +115,26 @@ class EulerSolver(ODE):
                 return compute_conservatives(w0(x, y, z), gamma=self.gamma)
 
         u0_fv = fv_average(f=u0, x=self.X, y=self.Y, z=self.Z, h=self.h, p=self.p)
-        u0_fv = self.xp.asarray(u0_fv)
         super().__init__(u0_fv, progress_bar=progress_bar)
 
     def f(self, t, u):
         return self.hydrodynamics(u)
 
-    def send_to_GPU(self):
-        self.u = self.xp.asarray(self.u)
-
-    def send_to_CPU(self):
-        self.u = self.xp.asnumpy(self.u)
-
     def snapshot(self):
         """
-        save dictionary of finite volume averages at a given time to the snapshots attribute
+        log a dictionary
         """
-        if self.cupy:
-            self.send_to_CPU()
 
-        u = self.u
+        u = self.u.asnamednumpy() if self.cupy else self.u.copy()
         w = compute_primitives(u, gamma=self.gamma)
+        fv_data = u.merge(w)
 
         log = {
-            "rho": u[0].copy(),
-            "E": u[1].copy(),
-            "px": u[2].copy(),
-            "py": u[3].copy(),
-            "pz": u[4].copy(),
-            "P": w[1].copy(),
-            "vx": w[2].copy(),
-            "vy": w[3].copy(),
-            "vz": w[4].copy(),
+            "t": self.t,
+            "fv": fv_data,
         }
-        self.snapshots[self.t] = log
-
-        if self.cupy:
-            self.send_to_GPU()
+        self.snapshots.append(log)
+        self.snapshot_times.append(self.t)
 
     def interpolate_cell_centers(
         self, fvarr: np.ndarray, p: Tuple[int, int, int]
@@ -193,12 +146,13 @@ class EulerSolver(ODE):
         returns
             out (array_like) : conservative interpolation of fvarr at cell centers
         """
-        gw = (int(np.ceil(p[0] / 2)), int(np.ceil(p[1] / 2)), int(np.ceil(p[2] / 2)))
-        fvarr_bced = self.apply_bcs(
-            fvarr,
-            bc_type=self.bc,
-            pad_width=((0, 0), (gw[0], gw[0]), (gw[1], gw[1]), (gw[2], gw[2])),
+        gw = (
+            int(np.ceil(self.p[0] / 2)),
+            int(np.ceil(self.p[1] / 2)),
+            int(np.ceil(self.p[2] / 2)),
         )
+        fvarr_bced = self.bc.apply(fvarr, gw=(0, gw[0], gw[1], gw[2]))
+
         out = conservative_interpolation(
             fvarr=conservative_interpolation(
                 fvarr=conservative_interpolation(
@@ -215,36 +169,22 @@ class EulerSolver(ODE):
         assert out.shape == fvarr.shape
         return out
 
-    def apply_bcs(self, u: np.ndarray, bc_type: str, **kwargs) -> np.ndarray:
-        """
-        args:
-            u (array_like) : array of cell parameters
-            bc_type (str) : "periodic"
-        returns:
-            out (array_like) : u with additional padding for applied boundaries
-        """
-        if bc_type == "periodic":
-            out = np.pad(u, mode="wrap", **kwargs)
-        return out
-
     def hydrofluxes(
-        self, w: np.ndarray, p: Tuple[int, int, int]
-    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        self, w: NamedNumpyArray, p: Tuple[int, int, int]
+    ) -> Tuple[NamedNumpyArray, NamedNumpyArray, NamedNumpyArray]:
         """
         compute the Euler equation fluxes F, G, H with degree p polynomials
         args:
-            w (array_like) : cell-averages of primitive variables. has shape (5, nx, ny, nz)
+            w (NamedArray) : cell-averages of primitive variables. has shape (5, nx, ny, nz)
             p (Tuple[int, int, int]) : polynomial interpolation degree (px, py, pz)
         returns:
-            F (array_like) : x-direction fluxes. has shape (5, nx + 1, ny, nz)
-            G (array_like) : x-direction fluxes. has shape (5, nx, ny + 1, nz)
-            H (array_like) : x-direction fluxes. has shape (5, nx, ny, nz + 1)
+            F (NamedArray) : x-direction conservative fluxes. has shape (5, nx + 1, ny, nz)
+            G (NamedArray) : y-direction conservative fluxes. has shape (5, nx, ny + 1, nz)
+            H (NamedArray) : z-direction conservative fluxes. has shape (5, nx, ny, nz + 1)
         """
         pmax = max(p)
         gw = max(int(np.ceil(pmax / 2)) + 1, 2 * int(np.ceil(pmax / 2)))
-        w_gw = self.apply_bcs(
-            w, bc_type=self.bc, pad_width=((0, 0), (gw, gw), (gw, gw), (gw, gw))
-        )
+        w_gw = self.bc.apply(w, gw=[gw, gw, gw])
 
         # interpolate x face midpoints
         w_xy = conservative_interpolation(w_gw, p=p[2], axis=3, pos="c")
@@ -269,19 +209,19 @@ class EulerSolver(ODE):
             wl=w_x_face_center_r[:, :-1, ...],
             wr=w_x_face_center_l[:, 1:, ...],
             gamma=self.gamma,
-            dir="x",
+            dim="x",
         )
         g_face_center = self.riemann_solver(
             wl=w_y_face_center_r[:, :, :-1, ...],
             wr=w_y_face_center_l[:, :, 1:, ...],
             gamma=self.gamma,
-            dir="y",
+            dim="y",
         )
         h_face_center = self.riemann_solver(
             wl=w_z_face_center_r[:, :, :, :-1, ...],
             wr=w_z_face_center_l[:, :, :, 1:, ...],
             gamma=self.gamma,
-            dir="z",
+            dim="z",
         )
 
         # excess ghost zone counts after flux integral
@@ -317,18 +257,18 @@ class EulerSolver(ODE):
 
         return F, G, H
 
-    def hydrodynamics(self, u: np.ndarray) -> Tuple[float, np.ndarray]:
+    def hydrodynamics(self, u: NamedNumpyArray) -> Tuple[float, NamedNumpyArray]:
         """
         compute the Euler equation dynamics from cell-average conserved values u
         args:
-            u (array_like) : cell-averages of conservative variables. has shape (5, nx, ny, nz)
+            u (NamedNumpyArray) : cell-averages of conservative variables. has shape (5, nx, ny, nz)
         returns:
-            dt, dudt (tuple[float, array_like]) : time-step size, conservative variable dynamics
+            dt, dudt (float, NamedNumpyArray) : time-step size, conservative variable dynamics
         """
         w = compute_primitives(u, gamma=self.gamma)
-        if np.min(w[0]) < 0:
+        if np.min(w.rho) < 0:
             raise BaseException("Negative density encountered.")
-        if np.min(w[1]) < 0:
+        if np.min(w.P) < 0:
             raise BaseException("Negative pressure encountered.")
         c_avg = compute_sound_speed(w=w, gamma=self.gamma)
 
@@ -338,9 +278,9 @@ class EulerSolver(ODE):
                 self.CFL
                 * 1
                 / np.max(
-                    (np.abs(w[2, ...]) + c_avg) / self.h[0]
-                    + (np.abs(w[3, ...]) + c_avg) / self.h[1]
-                    + (np.abs(w[4, ...]) + c_avg) / self.h[2]
+                    (np.abs(w.vx) + c_avg) / self.h[0]
+                    + (np.abs(w.vy) + c_avg) / self.h[1]
+                    + (np.abs(w.vz) + c_avg) / self.h[2]
                 ).item()
             )
         else:
@@ -383,29 +323,32 @@ class EulerSolver(ODE):
         verbose: bool = True,
         **kwargs,
     ) -> None:
+        """
+        plot a 1-dimensional slice by specifying t and two of three spatial dimensions x, y, and z
+        """
         if sum([x is None, y is None, z is None]) != 1:
             raise BaseException("One out of the three coordinates x-y-z must be None")
-        t = max(self.snapshots.keys()) if t is None else t
-        n = np.argmin(np.abs(np.array(list(self.snapshots.keys())) - t))
-        t = list(self.snapshots.keys())[n]
+        t = max(self.snapshot_times) if t is None else t
+        n = np.argmin(np.abs(np.array(list(self.snapshot_times)) - t))
+        t = list(self.snapshot_times)[n]
         if x is None:
             j, k = np.argmin(np.abs(self.y - y)), np.argmin(np.abs(self.z - z))
             y, z = self.y[j], self.z[k]
             x = self.x
             x_for_plotting = self.x
-            y_for_plotting = self.snapshots[t][param][:, j, k]
+            y_for_plotting = getattr(self.snapshots[n]["fv"], param)[:, j, k]
         elif y is None:
             i, k = np.argmin(np.abs(self.x - x)), np.argmin(np.abs(self.z - z))
             x, z = self.x[i], self.z[k]
             y = self.y
             x_for_plotting = self.y
-            y_for_plotting = self.snapshots[t][param][i, :, k]
+            y_for_plotting = getattr(self.snapshots[n]["fv"], param)[i, :, k]
         elif z is None:
             i, j = np.argmin(np.abs(self.x - x)), np.argmin(np.abs(self.y - y))
             x, y = self.x[i], self.y[j]
             z = self.z
             x_for_plotting = self.z
-            y_for_plotting = self.snapshots[t][param][i, j, :]
+            y_for_plotting = getattr(self.snapshots[n]["fv"], param)[i, j, :]
         if verbose:
             t_message = f"{t:.2f}"
             x_message = (
@@ -437,16 +380,19 @@ class EulerSolver(ODE):
         verbose: bool = True,
         **kwargs,
     ) -> None:
+        """
+        plot a 2-dimensional slice by specifying t and one of three spatial dimensions x, y, and z
+        """
         if sum([x is None, y is None, z is None]) != 2:
             raise BaseException("Two out of the three coordinates x-y-z must be None")
-        t = max(self.snapshots.keys()) if t is None else t
-        n = np.argmin(np.abs(np.array(list(self.snapshots.keys())) - t))
-        t = list(self.snapshots.keys())[n]
+        t = max(self.snapshot_times) if t is None else t
+        n = np.argmin(np.abs(np.array(list(self.snapshot_times)) - t))
+        t = list(self.snapshot_times)[n]
         if x is None and y is None:
             k = np.argmin(np.abs(self.z - z))
             z = self.z[k]
             x, y = self.x, self.y
-            z_for_plotting = self.snapshots[t][param][:, :, k]
+            z_for_plotting = getattr(self.snapshots[n]["fv"], param)[:, :, k]
             z_for_plotting = np.rot90(z_for_plotting, 1)
             horizontal_axis, vertical_axis = "x", "y"
             limits = (x[0], x[-1], y[0], y[-1])
@@ -454,7 +400,7 @@ class EulerSolver(ODE):
             i = np.argmin(np.abs(self.x - x))
             x = self.x[i]
             y, z = self.y, self.z
-            z_for_plotting = self.snapshots[t][param][i, :, :]
+            z_for_plotting = getattr(self.snapshots[n]["fv"], param)[i, :, :]
             z_for_plotting = np.rot90(z_for_plotting, 1)
             horizontal_axis, vertical_axis = "y", "z"
             limits = (y[0], y[-1], z[0], z[-1])
@@ -462,7 +408,7 @@ class EulerSolver(ODE):
             j = np.argmin(np.abs(self.y - y))
             y = self.y[j]
             z, x = self.z, self.x
-            z_for_plotting = self.snapshots[t][param][:, j, :]
+            z_for_plotting = getattr(self.snapshots[n]["fv"], param)[:, j, :]
             z_for_plotting = np.rot90(z_for_plotting, 1)
             horizontal_axis, vertical_axis = "x", "z"
             limits = (x[0], x[-1], z[0], z[-1])

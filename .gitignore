@@ -8,3 +8,4 @@ fvhoe.egg-info/
 
 **/data/
 *.log
+tests/data/

@@ -5,7 +5,7 @@ from typing import Tuple
 
 def get_window(
     ndim: int, axis: int, cut: Tuple[int, int] = (0, 0), step: int = 1
-) -> np.ndarray:
+) -> tuple:
     """
     grab window of array along axis
     args:
@@ -14,7 +14,7 @@ def get_window(
         cut (Tuple[int, int]) : (# elems to remove from left, '' right)
         step (int) : step length
     returns:
-        out (array_like) : slices specifying window
+        out (tuple) : series of slices specifying window
     """
     slices = [slice(None)] * ndim
     slices[axis] = slice(cut[0] or None, -cut[1] or None, step)
@@ -30,7 +30,7 @@ def conservative_interpolation(
         fvarr (array_like) : array of finite volume cell averages
         p (int) : polynomial degree of conservative interpolation
         axis (int) : along which to interpolate
-        pos (str) : cell position
+        pos (str) : interpolation position along finite volume
             "l" left
             "c" center
             "r" right

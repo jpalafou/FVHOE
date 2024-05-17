@@ -6,41 +6,37 @@ def advection_upwind(
     wl: np.ndarray,
     wr: np.ndarray,
     gamma: float,
-    dir: str,
+    dim: str,
 ) -> np.ndarray:
     """
     Riemann Solvers and Numerical Methods for Fluid Dynamics by Toro
     Page 331
     args:
-        wl/r (array_like) : array of primitive variables to the left/right of the interface
-            density, pressure, x-velocity, y-velocity, z-velocity
+        wl (array_like) : values to the left of interface, NamedArray with ["rho", "vx", "vy", "vz", "P"]'
+        wr (array_like) : values to the right of interface, NamedArray with ["rho", "vx", "vy", "vz", "P"]
         gamma (float) : specific heat ratio
-        dir (str) : "x", "y", "z"
+        dim (str) : "x", "y", "z"
     returns:
-        out (array_like) : upwinding flux for constant advection
+        out (array_like) : upwinding flux for constant advection, NamedArray with ["rho", "px", "py", "pz", "E"]
     """
+    # compute conservative variables
     ul = compute_conservatives(wl, gamma)
     ur = compute_conservatives(wr, gamma)
+    out = ul.copy()
 
-    # single out velocities and momentums
-    vslice = {"x": 2, "y": 3, "z": 4}[dir]
-    v, _ = (
-        wl[vslice, ...],
-        wr[vslice, ...],
-    )  # velocities (use left velocity since it should be constant in time and space, anyways)
-    pl, pr = ul[vslice, ...], ur[vslice, ...]  # momentums
+    # assume velocity is continuous across interface
+    v = getattr(wl, "v" + dim)  # velocity in dim-direction
 
-    # upwinding flux
-    kinetic_energy_l = 0.5 * np.sum(ul[2:] * wl[2:], axis=0)
-    kinetic_energy_r = 0.5 * np.sum(ur[2:] * wr[2:], axis=0)
-    out = np.zeros_like(wl)
-    out[0, ...] = np.where(v > 0, pl, np.where(v < 0, pr, 0))
-    out[1, ...] = np.where(
-        v > 0, v * kinetic_energy_l, np.where(v < 0, v * kinetic_energy_r, 0)
-    )
-    out[2, ...] = np.where(v > 0, pl * wl[2, ...], np.where(v < 0, pr * wr[2, ...], 0))
-    out[3, ...] = np.where(v > 0, pl * wl[3, ...], np.where(v < 0, pr * wr[3, ...], 0))
-    out[4, ...] = np.where(v > 0, pl * wl[4, ...], np.where(v < 0, pr * wr[4, ...], 0))
+    # compute kinetic energies
+    kinetic_energy_l = 0.5 * (ul.px * wl.vx + ul.py * wl.vy + ul.pz * wl.vz)
+    kinetic_energy_r = 0.5 * (ur.px * wr.vz + ur.py * wr.vy + ur.pz * wr.vz)
+
+    # assign fluxes
+    out.rho = v * np.where(v > 0, wl.rho, np.where(v < 0, wr.rho, 0))
+    out.px = v * np.where(v > 0, ul.px, np.where(v < 0, ur.px, 0))
+    out.py = v * np.where(v > 0, ul.py, np.where(v < 0, ur.py, 0))
+    out.pz = v * np.where(v > 0, ul.pz, np.where(v < 0, ur.pz, 0))
+    out.E = v * np.where(v > 0, kinetic_energy_l, np.where(v < 0, kinetic_energy_r, 0))
 
     return out
 
