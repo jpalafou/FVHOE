@@ -6,4 +6,5 @@ fvhoe.egg-info/
 .nox/
 .ruff_cache/
 
+**/data/
 *.log
