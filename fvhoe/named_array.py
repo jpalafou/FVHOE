@@ -47,7 +47,7 @@ def defined_NamedArray_class(cupy: bool = False):
             if not copy:
                 obj = xp.asarray(input_array).view(cls)
             else:
-                obj = xp.asarray(input_array).copy().view(cls)
+                obj = xp.array(input_array).view(cls)
 
             # Directly set the attributes to avoid calling __setattr__
             obj.__dict__["variable_indices"] = {name: i for i, name in enumerate(names)}
@@ -79,6 +79,9 @@ def defined_NamedArray_class(cupy: bool = False):
             else:
                 super().__setattr__(name, value)
 
+        def copy(self):
+            return self.__class__(self, self.variable_names, copy=True)
+
         def asnumpy(self) -> np.ndarray:
             """
             Return array as numpy array.
@@ -100,9 +103,8 @@ def defined_NamedArray_class(cupy: bool = False):
                     raise TypeError(
                         "input_array first axis length does not match length of new_names"
                     )
-            self.variable_indices = {name: i for i, name in enumerate(new_names)}
-            self.variable_names = new_names
-            self.variable_name_set = set(new_names)
+            out = self.__class__(self, new_names, copy=True)
+            return out
 
         def remove(self, name: Union[str, Iterable]):
             """

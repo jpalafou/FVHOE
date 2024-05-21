@@ -10,8 +10,7 @@ def compute_primitives(u: NamedNumpyArray, gamma: float) -> NamedNumpyArray:
     returns:
         w (NamedArray) : has variables names ["rho", "vx", "vy", "vz", "P"]
     """
-    w = u.copy()
-    w.rename_variables({"px": "vx", "py": "vy", "pz": "vz", "E": "P"})
+    w = u.rename_variables({"px": "vx", "py": "vy", "pz": "vz", "E": "P"})
     w.rho = u.rho
     w.vx = u.px / u.rho
     w.vy = u.py / u.rho
@@ -28,8 +27,7 @@ def compute_conservatives(w: NamedNumpyArray, gamma: float) -> NamedNumpyArray:
     returns:
         u (NamedArray) : has variables names ["rho", "px", "py", "pz", "E"]
     """
-    u = w.copy()
-    u.rename_variables({"vx": "px", "vy": "py", "vz": "pz", "P": "E"})
+    u = w.rename_variables({"vx": "px", "vy": "py", "vz": "pz", "P": "E"})
     u.rho = w.rho
     u.px = w.rho * w.vx
     u.py = w.rho * w.vy

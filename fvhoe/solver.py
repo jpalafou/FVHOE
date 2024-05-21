@@ -115,6 +115,7 @@ class EulerSolver(ODE):
                 return compute_conservatives(w0(x, y, z), gamma=self.gamma)
 
         u0_fv = fv_average(f=u0, x=self.X, y=self.Y, z=self.Z, h=self.h, p=self.p)
+        u0_fv = self.NamedArray(u0_fv, u0_fv.variable_names)
         super().__init__(u0_fv, progress_bar=progress_bar)
 
     def f(self, t, u):

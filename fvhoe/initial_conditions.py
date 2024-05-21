@@ -86,11 +86,13 @@ def square(
         if dim_name in dims:
             inside_square_1d = np.logical_and(dim_arr > 0.25, dim_arr < 0.75)
             inside_square = np.logical_and(inside_square, inside_square_1d)
-    out[0] = np.where(inside_square, rho_min_max[1], rho_min_max[0])
-    out[1] = P
-    out[2] = vx
-    out[3] = vy
-    out[4] = vz
+    out.rho = np.where(inside_square, rho_min_max[1], rho_min_max[0])
+
+    # assign other variables
+    out.P = P
+    out.vx = vx
+    out.vy = vy
+    out.vz = vz
     return out
 
 

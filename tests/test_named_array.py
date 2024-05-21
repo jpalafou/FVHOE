@@ -177,8 +177,7 @@ def test_rename_variables(NamedArray: callable, rename: Union[dict, Iterable]):
     """
     x = np.linspace(1, 125, 125).reshape(5, 5, 5)
     x_nnp1 = NamedArray(x, ["a", "b", "c", "d", "e"])
-    x_nnp2 = x_nnp1.copy()
-    x_nnp2.rename_variables(rename)
+    x_nnp2 = x_nnp1.rename_variables(rename)
     assert np.all(x_nnp1.a == x_nnp2.A)
     assert np.all(x_nnp1.b == x_nnp2.b)
     assert np.all(x_nnp1.c == x_nnp2.c)
