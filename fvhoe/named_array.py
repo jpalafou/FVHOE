@@ -6,7 +6,7 @@ try:
 
     _ = cp.asarray(np.array([1, 2]))
     CUPY_AVAILABLE = True
-except (ImportError, ModuleNotFoundError):
+except Exception:
     CUPY_AVAILABLE = False
 
 
@@ -43,11 +43,7 @@ def defined_NamedArray_class(cupy: bool = False):
                     "input_array first axis length does not match length of names"
                 )
 
-            # Ensure the input array is a numpy array
-            if not copy:
-                obj = xp.asarray(input_array).view(cls)
-            else:
-                obj = xp.array(input_array).view(cls)
+            obj = xp.array(input_array, copy=copy).view(cls)
 
             # Directly set the attributes to avoid calling __setattr__
             obj.__dict__["variable_indices"] = {name: i for i, name in enumerate(names)}
@@ -69,7 +65,7 @@ def defined_NamedArray_class(cupy: bool = False):
             Return slice of array as numpy or cupy array.
             """
             if name in self.variable_name_set:
-                return xp.asarray(self[self.variable_indices[name], ...])
+                return self[self.variable_indices[name], ...]
             else:
                 raise AttributeError(f"'NamedArray' object has no attribute '{name}'")
 
