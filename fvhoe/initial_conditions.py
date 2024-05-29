@@ -117,8 +117,8 @@ def slotted_disk(
     out = NamedNumpyArray(np.asarray([np.empty_like(x)] * 5), primitive_names)
 
     # density and velocity
-    xc, yc = x - 0.5, y - 0.75
-    rsq = np.square(xc) + np.square(yc)
+    xc, yc = x - 0.5, y - 0.5
+    rsq = np.square(xc) + np.square(y - 0.75)
     inside_disk = np.logical_and(
         rsq < 0.15**2, np.logical_not(np.logical_and(np.abs(xc) < 0.025, y < 0.85))
     )

@@ -3,18 +3,48 @@ import numpy as np
 from typing import Tuple
 
 
-def get_window(
+def uniform_fv_mesh(
+    nx: int,
+    ny: int = 1,
+    nz: int = 1,
+    x: Tuple[float, float] = (0, 1),
+    y: Tuple[float, float] = (0, 1),
+    z: Tuple[float, float] = (0, 1),
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """
+    compute locations of finite volume centers in a uniform x, y, z mesh
+    args:
+        nx (int) : number of volumes in x-direction
+        ny (int) : number of volumes in y-direction
+        nz (int) : number of volumes in z-direction
+        x (Tuple[float, float]) : left, right x-domain boundaries
+        y (Tuple[float, float]) : left, right y-domain boundaries
+        z (Tuple[float, float]) : left, right z-domain boundaries
+    returns:
+        X, Y, Z (Tuple[array_like, array_like, array_like]) : finite volume centers
+    """
+    x_interfaces = np.linspace(x[0], x[1], nx + 1)
+    y_interfaces = np.linspace(y[0], y[1], ny + 1)
+    z_interfaces = np.linspace(z[0], z[1], nz + 1)
+    x_centers = 0.5 * (x_interfaces[:-1] + x_interfaces[1:])
+    y_centers = 0.5 * (y_interfaces[:-1] + y_interfaces[1:])
+    z_centers = 0.5 * (z_interfaces[:-1] + z_interfaces[1:])
+    X, Y, Z = np.meshgrid(x_centers, y_centers, z_centers, indexing="ij")
+    return X, Y, Z
+
+
+def get_view(
     ndim: int, axis: int, cut: Tuple[int, int] = (0, 0), step: int = 1
 ) -> tuple:
     """
-    grab window of array along axis
+    grab view of array along axis
     args:
-        ndim (int) : number of axis
-        axis (int) : along which to apply boundaries
+        ndim (int) : number of axes
+        axis (int) : along which to get view
         cut (Tuple[int, int]) : (# elems to remove from left, '' right)
         step (int) : step length
     returns:
-        out (tuple) : series of slices specifying window
+        out (tuple) : series of slices specifying view
     """
     slices = [slice(None)] * ndim
     slices[axis] = slice(cut[0] or None, -cut[1] or None, step)
@@ -38,15 +68,15 @@ def conservative_interpolation(
         out (array_like) : array of interpolations
     """
 
-    gw = partial(get_window, ndim=fvarr.ndim, axis=axis)
+    gv = partial(get_view, ndim=fvarr.ndim, axis=axis)
 
     if pos == "r":
         return conservative_interpolation(
-            fvarr=fvarr[gw(step=-1)],
+            fvarr=fvarr[gv(step=-1)],
             p=p,
             axis=axis,
             pos="l",
-        )[gw(step=-1)]
+        )[gv(step=-1)]
 
     match p:
         case 0:
@@ -54,45 +84,45 @@ def conservative_interpolation(
         case 1:
             if pos == "l":
                 out = (
-                    1 * fvarr[gw(cut=(0, 2))]
-                    + 4 * fvarr[gw(cut=(1, 1))]
-                    + -1 * fvarr[gw(cut=(2, 0))]
+                    1 * fvarr[gv(cut=(0, 2))]
+                    + 4 * fvarr[gv(cut=(1, 1))]
+                    + -1 * fvarr[gv(cut=(2, 0))]
                 ) / 4
             elif pos == "c":
                 out = (
-                    0 * fvarr[gw(cut=(0, 2))]
-                    + 1 * fvarr[gw(cut=(1, 1))]
-                    + 0 * fvarr[gw(cut=(2, 0))]
+                    0 * fvarr[gv(cut=(0, 2))]
+                    + 1 * fvarr[gv(cut=(1, 1))]
+                    + 0 * fvarr[gv(cut=(2, 0))]
                 ) / 1
         case 2:
             if pos == "l":
                 out = (
-                    2 * fvarr[gw(cut=(0, 2))]
-                    + 5 * fvarr[gw(cut=(1, 1))]
-                    + -1 * fvarr[gw(cut=(2, 0))]
+                    2 * fvarr[gv(cut=(0, 2))]
+                    + 5 * fvarr[gv(cut=(1, 1))]
+                    + -1 * fvarr[gv(cut=(2, 0))]
                 ) / 6
             elif pos == "c":
                 out = (
-                    -1 * fvarr[gw(cut=(0, 2))]
-                    + 26 * fvarr[gw(cut=(1, 1))]
-                    + -1 * fvarr[gw(cut=(2, 0))]
+                    -1 * fvarr[gv(cut=(0, 2))]
+                    + 26 * fvarr[gv(cut=(1, 1))]
+                    + -1 * fvarr[gv(cut=(2, 0))]
                 ) / 24
         case 3:
             if pos == "l":
                 out = (
-                    -1 * fvarr[gw(cut=(0, 4))]
-                    + 10 * fvarr[gw(cut=(1, 3))]
-                    + 20 * fvarr[gw(cut=(2, 2))]
-                    + -6 * fvarr[gw(cut=(3, 1))]
-                    + 1 * fvarr[gw(cut=(4, 0))]
+                    -1 * fvarr[gv(cut=(0, 4))]
+                    + 10 * fvarr[gv(cut=(1, 3))]
+                    + 20 * fvarr[gv(cut=(2, 2))]
+                    + -6 * fvarr[gv(cut=(3, 1))]
+                    + 1 * fvarr[gv(cut=(4, 0))]
                 ) / 24
             elif pos == "c":
                 out = (
-                    0 * fvarr[gw(cut=(0, 4))]
-                    + -1 * fvarr[gw(cut=(1, 3))]
-                    + 26 * fvarr[gw(cut=(2, 2))]
-                    + -1 * fvarr[gw(cut=(3, 1))]
-                    + 0 * fvarr[gw(cut=(4, 0))]
+                    0 * fvarr[gv(cut=(0, 4))]
+                    + -1 * fvarr[gv(cut=(1, 3))]
+                    + 26 * fvarr[gv(cut=(2, 2))]
+                    + -1 * fvarr[gv(cut=(3, 1))]
+                    + 0 * fvarr[gv(cut=(4, 0))]
                 ) / 24
         case _:
             raise NotImplementedError(f"{p=}")
@@ -110,30 +140,82 @@ def transverse_reconstruction(u: np.ndarray, p: int, axis: int) -> np.ndarray:
         out (array_like) : array of interpolations of flux integrals
     """
 
-    gw = partial(get_window, ndim=u.ndim, axis=axis)
+    gv = partial(get_view, ndim=u.ndim, axis=axis)
 
     match p:
         case 0:
             out = u.copy()
         case 1:
             out = (
-                0 * u[gw(cut=(0, 2))] + 1 * u[gw(cut=(1, 1))] + 0 * u[gw(cut=(2, 0))]
+                0 * u[gv(cut=(0, 2))] + 1 * u[gv(cut=(1, 1))] + 0 * u[gv(cut=(2, 0))]
             ) / 1
         case 2:
             out = (
-                1 * u[gw(cut=(0, 2))] + 22 * u[gw(cut=(1, 1))] + 1 * u[gw(cut=(2, 0))]
+                1 * u[gv(cut=(0, 2))] + 22 * u[gv(cut=(1, 1))] + 1 * u[gv(cut=(2, 0))]
             ) / 24
         case 3:
             out = (
-                0 * u[gw(cut=(0, 4))]
-                + 1 * u[gw(cut=(1, 3))]
-                + 22 * u[gw(cut=(2, 2))]
-                + 1 * u[gw(cut=(3, 1))]
-                + 0 * u[gw(cut=(4, 0))]
+                0 * u[gv(cut=(0, 4))]
+                + 1 * u[gv(cut=(1, 3))]
+                + 22 * u[gv(cut=(2, 2))]
+                + 1 * u[gv(cut=(3, 1))]
+                + 0 * u[gv(cut=(4, 0))]
             ) / 24
         case _:
             raise NotImplementedError(f"{p=}")
 
+    return out
+
+
+def interpolate_cell_centers(
+    fvarr: np.ndarray, p: Tuple[int, int, int] = (0, 0, 0)
+) -> np.ndarray:
+    """
+    compute cell centers from an array of finite volume averages
+    args:
+        fvarr (array_like) : array of finite volume averages, with shape (# vars, nx, ny, nz)
+        p (Tuple[int, int, int]) : polynomial degrees in each direction (px, py, pz)
+    returns:
+        out (array_like) : interpolations of cell centers
+    """
+    out = conservative_interpolation(
+        fvarr=conservative_interpolation(
+            fvarr=conservative_interpolation(fvarr=fvarr, p=p[0], axis=1, pos="c"),
+            p=p[1],
+            axis=2,
+            pos="c",
+        ),
+        p=p[2],
+        axis=3,
+        pos="c",
+    )
+    return out
+
+
+def interpolate_fv_averages(
+    u: np.ndarray, p: Tuple[int, int, int] = (0, 0, 0)
+) -> np.ndarray:
+    """
+    compute finite volume averages from an array of cell centers
+    args:
+        u (array_like) : array of cell centers, with shape (# vars, nx, ny, nz)
+        p (Tuple[int, int, int]) : polynomial degrees in each direction (px, py, pz)
+    returns:
+        out (array_like) : interpolations of cell centers
+    """
+    out = transverse_reconstruction(
+        u=transverse_reconstruction(
+            u=transverse_reconstruction(
+                u=u,
+                p=p[0],
+                axis=1,
+            ),
+            p=p[1],
+            axis=2,
+        ),
+        p=p[2],
+        axis=3,
+    )
     return out
 
 

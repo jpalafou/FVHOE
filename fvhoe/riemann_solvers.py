@@ -22,22 +22,21 @@ def advection_upwind(
     # compute conservative variables
     ul = compute_conservatives(wl, gamma)
     ur = compute_conservatives(wr, gamma)
-    out = ul.copy()
 
     # assume velocity is continuous across interface
-    v = getattr(wl, "v" + dim)  # velocity in dim-direction
+    v = getattr(wl, "v" + dim)[np.newaxis]  # velocity in dim-direction
 
-    # compute kinetic energies
-    kinetic_energy_l = 0.5 * (ul.px * wl.vx + ul.py * wl.vy + ul.pz * wl.vz)
-    kinetic_energy_r = 0.5 * (ur.px * wr.vz + ur.py * wr.vy + ur.pz * wr.vz)
+    # get hydro fluxes
+    Fl = compute_fluxes(u=ul, w=wl, gamma=gamma, dim=dim)
+    Fr = compute_fluxes(u=ur, w=wr, gamma=gamma, dim=dim)
 
-    # assign fluxes
-    out.rho = v * np.where(v > 0, wl.rho, np.where(v < 0, wr.rho, 0))
-    out.px = v * np.where(v > 0, ul.px, np.where(v < 0, ur.px, 0))
-    out.py = v * np.where(v > 0, ul.py, np.where(v < 0, ur.py, 0))
-    out.pz = v * np.where(v > 0, ul.pz, np.where(v < 0, ur.pz, 0))
-    out.E = v * np.where(v > 0, kinetic_energy_l, np.where(v < 0, kinetic_energy_r, 0))
+    # plt.plot(Fl.rho[:,0,0])
+    # plt.plot(Fl.E[:,0,0])
+    # STOP
 
+    # upwind
+    out = np.where(v > 0, Fl, np.where(v < 0, Fr, 0))
+    out = ul.__class__(out, names=ul.variable_names)
     return out
 
 

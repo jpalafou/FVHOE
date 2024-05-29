@@ -41,7 +41,7 @@ def test_1d_advection_symmetry(f0: callable, p: int, N: int = 64, t: float = 1):
             pz=pz,
             riemann_solver="advection_upwind",
             progress_bar=False,
-            fixed_dt=advection_dt(hx=1 / N, vx=1),
+            fixed_dt=0.4 * advection_dt(hx=1 / N, vx=1),
         )
         solver.rkorder(stopping_time=t)
         solutions[dim] = solver
@@ -93,7 +93,7 @@ def test_2d_advection_symmetry(p, N=32, t: float = 1):
             pz=pz,
             riemann_solver="advection_upwind",
             progress_bar=False,
-            fixed_dt=advection_dt(hx=1 / N, hy=1 / N, vx=2, vy=1),
+            fixed_dt=0.4 * advection_dt(hx=1 / N, hy=1 / N, vx=2, vy=1),
         )
         solver.rkorder(stopping_time=t)
         solutions[dims] = solver

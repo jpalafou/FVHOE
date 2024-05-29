@@ -63,12 +63,12 @@ def compute_fluxes(
         out (array_like) : fluxes in specified direction, has variables names ["rho", "px", "py", "pz", "E"]
     """
     out = u.copy()
-    p = getattr(u, "p" + dim)  # momentum in dim-direction
-    out.rho = p
-    out.px = p * w.vx + (w.p if dim == "x" else 0.0)
-    out.py = p * w.vy + (w.p if dim == "y" else 0.0)
-    out.pz = p * w.vz + (w.p if dim == "z" else 0.0)
-    out.E = p * (u.E + w.P)
+    v = getattr(w, "v" + dim)  # velocity in dim-direction
+    out.rho = v * w.rho
+    out.px = v * u.px + (w.P if dim == "x" else 0.0)
+    out.py = v * u.py + (w.P if dim == "y" else 0.0)
+    out.pz = v * u.pz + (w.P if dim == "z" else 0.0)
+    out.E = v * (u.E + w.P)
     return out
 
 

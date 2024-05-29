@@ -1,6 +1,13 @@
 import numpy as np
 from fvhoe.boundary_conditions import BoundaryCondition
-from fvhoe.fv import fv_average, conservative_interpolation, transverse_reconstruction
+from fvhoe.config import conservative_names
+from fvhoe.fv import (
+    fv_average,
+    conservative_interpolation,
+    transverse_reconstruction,
+    interpolate_cell_centers,
+    interpolate_fv_averages,
+)
 from fvhoe.hydro import (
     compute_conservatives,
     compute_primitives,
@@ -32,6 +39,7 @@ class EulerSolver(ODE):
         riemann_solver: str = "HLLC",
         conservative_ic: bool = False,
         progress_bar: bool = True,
+        dumpall: bool = False,
         cupy: bool = False,
     ):
         """
@@ -64,12 +72,16 @@ class EulerSolver(ODE):
                 "HLLC" : advanced riemann solver for Euler equations
             conservative_ic (bool) : indicates that w0 returns conservative variables if true
             progress_bar (bool) : whether to print out a progress bar
+            dumpall (bool) : save all variables in snapshot
             cupy (bool) : whether to use GPUs via the cupy library
         returns:
             EulerSolver object
         """
 
         # generate txyz mesh
+        self.x_domain = x
+        self.y_domain = y
+        self.z_domain = z
         self.xi = np.linspace(x[0], x[1], nx + 1)  # x-interfaces
         self.yi = np.linspace(y[0], y[1], ny + 1)  # y-interfaces
         self.zi = np.linspace(z[0], z[1], nz + 1)  # z-interfaces
@@ -102,8 +114,20 @@ class EulerSolver(ODE):
         self.NamedArray = NamedCupyArray if cupy else NamedNumpyArray
 
         # boundary conditions
-        self.bc = (
-            bc if bc is not None else BoundaryCondition(NamedArray=self.NamedArray)
+        bc = BoundaryCondition() if bc is None else bc
+        self.bc = BoundaryCondition(
+            names=conservative_names,
+            x=bc.x,
+            y=bc.x,
+            z=bc.z,
+            x_value=bc.x_value,
+            y_value=bc.y_value,
+            z_value=bc.z_value,
+            x_domain=self.x_domain,
+            y_domain=self.y_domain,
+            z_domain=self.z_domain,
+            h=self.h,
+            p=self.p,
         )
 
         # integrator
@@ -117,6 +141,7 @@ class EulerSolver(ODE):
         u0_fv = fv_average(f=u0, x=self.X, y=self.Y, z=self.Z, h=self.h, p=self.p)
         u0_fv = self.NamedArray(u0_fv, u0_fv.variable_names)
         super().__init__(u0_fv, progress_bar=progress_bar)
+        self.dumpall = dumpall
 
     def f(self, t, u):
         return self.hydrodynamics(u)
@@ -128,79 +153,86 @@ class EulerSolver(ODE):
 
         u = self.u.asnamednumpy() if self.cupy else self.u.copy()
         w = compute_primitives(u, gamma=self.gamma)
-        fv_data = u.merge(w)
+        if self.dumpall:
+            fv_data = u.merge(w)
 
         log = {
             "t": self.t,
-            "fv": fv_data,
+            "fv": fv_data if self.dumpall else w,
         }
         self.snapshots.append(log)
         self.snapshot_times.append(self.t)
 
-    def interpolate_cell_centers(
-        self, fvarr: np.ndarray, p: Tuple[int, int, int]
-    ) -> np.ndarray:
-        """
-        args:
-            fvarr (array_like) : array of cell averages, shape (5, ny, nx,n z)
-            p (Tuple[int, int, int]) : polynomial interpolation degree (px, py, pz)
-        returns
-            out (array_like) : conservative interpolation of fvarr at cell centers
-        """
-        gw = (
-            int(np.ceil(self.p[0] / 2)),
-            int(np.ceil(self.p[1] / 2)),
-            int(np.ceil(self.p[2] / 2)),
-        )
-        fvarr_bced = self.bc.apply(fvarr, gw=(0, gw[0], gw[1], gw[2]))
-
-        out = conservative_interpolation(
-            fvarr=conservative_interpolation(
-                fvarr=conservative_interpolation(
-                    fvarr=fvarr_bced, p=p[0], axis=1, pos="c"
-                ),
-                p=p[1],
-                axis=2,
-                pos="c",
-            ),
-            p=p[2],
-            axis=3,
-            pos="c",
-        )
-        assert out.shape == fvarr.shape
-        return out
-
     def hydrofluxes(
-        self, w: NamedNumpyArray, p: Tuple[int, int, int]
-    ) -> Tuple[NamedNumpyArray, NamedNumpyArray, NamedNumpyArray]:
+        self, u: NamedNumpyArray, p: Tuple[int, int, int]
+    ) -> Tuple[float, Tuple[NamedNumpyArray, NamedNumpyArray, NamedNumpyArray]]:
         """
         compute the Euler equation fluxes F, G, H with degree p polynomials
         args:
-            w (NamedArray) : cell-averages of primitive variables. has shape (5, nx, ny, nz)
+            u (NamedArray) : cell-averages of conservative variables. has shape (5, nx, ny, nz)
             p (Tuple[int, int, int]) : polynomial interpolation degree (px, py, pz)
         returns:
-            F (NamedArray) : x-direction conservative fluxes. has shape (5, nx + 1, ny, nz)
-            G (NamedArray) : y-direction conservative fluxes. has shape (5, nx, ny + 1, nz)
-            H (NamedArray) : z-direction conservative fluxes. has shape (5, nx, ny, nz + 1)
+            dt, (F, G, H) (tuple) : time-step size and numerical fluxes
+                dt (float) : time-step size
+                F (NamedArray) : x-direction conservative fluxes. has shape (5, nx + 1, ny, nz)
+                G (NamedArray) : y-direction conservative fluxes. has shape (5, nx, ny + 1, nz)
+                H (NamedArray) : z-direction conservative fluxes. has shape (5, nx, ny, nz + 1)
         """
+        # find required number of ghost zones
         pmax = max(p)
         gw = max(int(np.ceil(pmax / 2)) + 1, 2 * int(np.ceil(pmax / 2)))
-        w_gw = self.bc.apply(w, gw=[gw, gw, gw])
+
+        # fv conservatives to fv primitives
+        u_bc = self.bc.apply(
+            u,
+            gw=(
+                2 * int(np.ceil(self.p[0] / 2)) + gw,
+                2 * int(np.ceil(self.p[1] / 2)) + gw,
+                2 * int(np.ceil(self.p[2] / 2)) + gw,
+            ),
+        )
+        u_cell_centers = interpolate_cell_centers(u_bc, p=self.p)
+        w_cell_centers = compute_primitives(u_cell_centers, gamma=self.gamma)
+        w_bc = interpolate_fv_averages(w_cell_centers, p=self.p)
+
+        # compute sound speed
+        if np.min(w_bc.rho) < 0:
+            raise BaseException("Negative density encountered.")
+        if np.min(w_bc.P) < 0:
+            raise BaseException("Negative pressure encountered.")
+        c_avg = compute_sound_speed(w=w_bc, gamma=self.gamma)
+
+        # and time-step size
+        if self.fixed_dt is None:
+            dt = (
+                self.CFL
+                * 1
+                / np.max(
+                    (np.abs(w_bc.vx) + c_avg) / self.h[0]
+                    + (np.abs(w_bc.vy) + c_avg) / self.h[1]
+                    + (np.abs(w_bc.vz) + c_avg) / self.h[2]
+                ).item()
+            )
+        else:
+            dt = self.fixed_dt
+
+        if dt < 0:
+            raise BaseException("Negative dt encountered.")
 
         # interpolate x face midpoints
-        w_xy = conservative_interpolation(w_gw, p=p[2], axis=3, pos="c")
+        w_xy = conservative_interpolation(w_bc, p=p[2], axis=3, pos="c")
         w_x = conservative_interpolation(w_xy, p=p[1], axis=2, pos="c")
         w_x_face_center_l = conservative_interpolation(w_x, p=p[0], axis=1, pos="l")
         w_x_face_center_r = conservative_interpolation(w_x, p=p[0], axis=1, pos="r")
 
         # interpolate y face midpoints
-        w_yz = conservative_interpolation(w_gw, p=p[0], axis=1, pos="c")
+        w_yz = conservative_interpolation(w_bc, p=p[0], axis=1, pos="c")
         w_y = conservative_interpolation(w_yz, p=p[2], axis=3, pos="c")
         w_y_face_center_l = conservative_interpolation(w_y, p=p[1], axis=2, pos="l")
         w_y_face_center_r = conservative_interpolation(w_y, p=p[1], axis=2, pos="r")
 
         # interpolate z face midpoints
-        w_zx = conservative_interpolation(w_gw, p=p[1], axis=2, pos="c")
+        w_zx = conservative_interpolation(w_bc, p=p[1], axis=2, pos="c")
         w_z = conservative_interpolation(w_zx, p=p[0], axis=1, pos="c")
         w_z_face_center_l = conservative_interpolation(w_z, p=p[2], axis=3, pos="l")
         w_z_face_center_r = conservative_interpolation(w_z, p=p[2], axis=3, pos="r")
@@ -256,42 +288,20 @@ class EulerSolver(ODE):
             transverse_reconstruction(h_face_center, axis=1, p=p[0]), axis=2, p=p[1]
         )[tuple(slice(z_excess[i] or None, -z_excess[i] or None) for i in range(4))]
 
-        return F, G, H
+        return dt, (F, G, H)
 
     def hydrodynamics(self, u: NamedNumpyArray) -> Tuple[float, NamedNumpyArray]:
         """
         compute the Euler equation dynamics from cell-average conserved values u
         args:
-            u (NamedNumpyArray) : cell-averages of conservative variables. has shape (5, nx, ny, nz)
+            u (NamedNumpyArray) : fv averages of conservative variables. has shape (5, nx, ny, nz)
         returns:
             dt, dudt (float, NamedNumpyArray) : time-step size, conservative variable dynamics
         """
-        w = compute_primitives(u, gamma=self.gamma)
-        if np.min(w.rho) < 0:
-            raise BaseException("Negative density encountered.")
-        if np.min(w.P) < 0:
-            raise BaseException("Negative pressure encountered.")
-        c_avg = compute_sound_speed(w=w, gamma=self.gamma)
-
-        # timestep size dt
-        if self.fixed_dt is None:
-            dt = (
-                self.CFL
-                * 1
-                / np.max(
-                    (np.abs(w.vx) + c_avg) / self.h[0]
-                    + (np.abs(w.vy) + c_avg) / self.h[1]
-                    + (np.abs(w.vz) + c_avg) / self.h[2]
-                ).item()
-            )
-        else:
-            dt = self.fixed_dt
-
-        if dt < 0:
-            raise BaseException("Negative dt encountered.")
-
         # high-order fluxes
-        F, G, H = self.hydrofluxes(w=w, p=self.p)
+        dt, (F, G, H) = self.hydrofluxes(u=u, p=self.p)
+
+        # euler equations
         dudt = -(1 / self.h[0]) * (F[:, 1:, ...] - F[:, :-1, ...])
         dudt += -(1 / self.h[1]) * (G[:, :, 1:, ...] - G[:, :, :-1, ...])
         dudt += -(1 / self.h[2]) * (H[:, :, :, 1:, ...] - H[:, :, :, :-1, ...])
