@@ -1,9 +1,17 @@
 from dataclasses import dataclass
 from functools import partial
 from fvhoe.fv import get_view, uniform_fv_mesh
+from fvhoe.named_array import NamedNumpyArray
 from itertools import product
 import numpy as np
 from typing import Iterable, Tuple
+
+try:
+    import cupy as cp
+
+    CUPY_AVAILABLE = True
+except Exception:
+    CUPY_AVAILABLE = False
 
 
 def set_dirichlet_bc(
@@ -35,7 +43,7 @@ def set_dirichlet_bc(
         y (array_like) : mesh of y-values, has shape (nx, ny, nz)
         z (array_like) : mesh of z-values, has shape (nx, ny, nz)
     returns:
-        None : revises u
+        u : (array_like) : u with boundary conditions applied
     """
     gv = partial(get_view, ndim=u.ndim, axis={"x": 0, "y": 1, "z": 2}[dim])
     x = np.array([]) if None else x
@@ -44,7 +52,8 @@ def set_dirichlet_bc(
 
     # if setting left side boundary: reflect, compute right boundary, reflect again
     if pos == "l":
-        u[...], x, y, z = u[gv(step=-1)], x[gv(step=-1)], y[gv(step=-1)], z[gv(step=-1)]
+        u[...] = u[gv(step=-1)]
+        x, y, z = x[gv(step=-1)], y[gv(step=-1)], z[gv(step=-1)]
         set_dirichlet_bc(
             f=f,
             u=u,
@@ -55,17 +64,20 @@ def set_dirichlet_bc(
             y=y,
             z=z,
         )
-        u[...], x, y, z = u[gv(step=-1)], x[gv(step=-1)], y[gv(step=-1)], z[gv(step=-1)]
-        return
+        u[...] = u[gv(step=-1)]
+        x, y, z = x[gv(step=-1)], y[gv(step=-1)], z[gv(step=-1)]
+        return u
 
     # set right side boundary
-    boundary_view = gv(cut=(-num_ghost, 0))
-    if callable(f):
-        x_bc, y_bc, z_bc = x[boundary_view], y[boundary_view], z[boundary_view]
-        boundary_values = f(x_bc, y_bc, z_bc)
-    else:
-        boundary_values = f
-    u[boundary_view] = boundary_values
+    if num_ghost > 0:
+        boundary_view = gv(cut=(-num_ghost, 0))
+        if callable(f):
+            x_bc, y_bc, z_bc = x[boundary_view], y[boundary_view], z[boundary_view]
+            boundary_values = f(x_bc, y_bc, z_bc)
+        else:
+            boundary_values = f
+        u[boundary_view] = boundary_values
+    return u
 
 
 def set_finite_difference_neumann_bc(
@@ -150,6 +162,7 @@ def set_periodic_bc(u: np.ndarray, num_ghost: int, dim: str) -> None:
     pad_width = [(0, 0), (0, 0), (0, 0)]
     pad_width[axis] = (num_ghost, num_ghost)
     u[...] = np.pad(u[gv(cut=(num_ghost, num_ghost))], pad_width=pad_width, mode="wrap")
+    return u
 
 
 def set_reflective_bc(
@@ -169,7 +182,7 @@ def set_reflective_bc(
             "r" : right
         negative (bool) : whether to multiply boundary values by -1
     returns:
-        None : revises u
+        u : (array_like) : u with boundary conditions applied
     """
     axis = {"x": 0, "y": 1, "z": 2}[dim]
     gv = partial(get_view, ndim=u.ndim, axis=axis)
@@ -178,12 +191,14 @@ def set_reflective_bc(
         u[...] = u[gv(step=-1)]
         set_reflective_bc(u=u, num_ghost=num_ghost, dim=dim, pos="r")
         u[...] = u[gv(step=-1)]
-        return
+        return u
 
     pad_width[axis] = (0, num_ghost)
     u[...] = np.pad(u[gv(cut=(0, num_ghost))], pad_width=pad_width, mode="reflect")
     if negative:
         u[gv(cut=(0, num_ghost))] = -1 * u[gv(cut=(0, num_ghost))]
+
+    return u
 
 
 def fd(
@@ -293,7 +308,7 @@ class BoundaryCondition:
 
     def apply(
         self,
-        u: np.ndarray,
+        u: NamedNumpyArray,
         gw: Iterable[int],
     ) -> np.ndarray:
         """
@@ -340,6 +355,10 @@ class BoundaryCondition:
                     self.z_domain[1] + self.h[2] * gw[2],
                 ),
             )
+            if u.xp == "cupy" and CUPY_AVAILABLE:
+                X = cp.asarray(X)
+                Y = cp.asarray(Y)
+                Z = cp.asarray(Z)
 
         # define views for each boundary region
         ALREADY_APPLIED_PERIODIC_BOUNDARY = {}
@@ -354,14 +373,16 @@ class BoundaryCondition:
                 case "periodic":
                     if ALREADY_APPLIED_PERIODIC_BOUNDARY.get(f"{var}{dim}", False):
                         continue
-                    set_periodic_bc(u=getattr(out, var), num_ghost=num_ghost, dim=dim)
+                    ubc = set_periodic_bc(
+                        u=getattr(out, var), num_ghost=num_ghost, dim=dim
+                    )
                     ALREADY_APPLIED_PERIODIC_BOUNDARY[f"{var}{dim}"] = True
                 case "reflective":
-                    set_reflective_bc(
+                    ubc = set_reflective_bc(
                         u=getattr(out, var), num_ghost=num_ghost, dim=dim, pos=pos
                     )
                 case "negative-reflective":
-                    set_reflective_bc(
+                    ubc = set_reflective_bc(
                         u=getattr(out, var),
                         num_ghost=num_ghost,
                         dim=dim,
@@ -369,7 +390,7 @@ class BoundaryCondition:
                         negative=True,
                     )
                 case "dirichlet":
-                    set_dirichlet_bc(
+                    ubc = set_dirichlet_bc(
                         f=bc_value,
                         u=getattr(out, var),
                         num_ghost=num_ghost,
@@ -380,6 +401,7 @@ class BoundaryCondition:
                         z=Z,
                     )
                 case "neumann":
+                    raise NotImplementedError("Neumann boundary conditions.")
                     set_finite_difference_neumann_bc(
                         u=getattr(out, var),
                         dudx=bc_value,
@@ -393,4 +415,7 @@ class BoundaryCondition:
                     continue
                 case _:
                     raise TypeError(f"Invalid boundary condition '{bc}'")
+
+            setattr(out, var, ubc)
+
         return out

@@ -8,15 +8,11 @@ from fvhoe.fv import (
     interpolate_cell_centers,
     interpolate_fv_averages,
 )
-from fvhoe.hydro import (
-    compute_conservatives,
-    compute_primitives,
-    compute_sound_speed,
-)
+from fvhoe.hydro import compute_conservatives, compute_primitives, hydro_dt
 from fvhoe.named_array import NamedCupyArray, NamedNumpyArray
 from fvhoe.ode import ODE
 from fvhoe.riemann_solvers import advection_upwind, HLLC
-from typing import Tuple
+from typing import Iterable, Tuple
 
 
 class EulerSolver(ODE):
@@ -38,6 +34,7 @@ class EulerSolver(ODE):
         bc: BoundaryCondition = None,
         riemann_solver: str = "HLLC",
         conservative_ic: bool = False,
+        fixed_primitive_variables: Iterable = None,
         progress_bar: bool = True,
         dumpall: bool = False,
         cupy: bool = False,
@@ -71,6 +68,7 @@ class EulerSolver(ODE):
                 "advection_upwinding" : for pure advection problem
                 "HLLC" : advanced riemann solver for Euler equations
             conservative_ic (bool) : indicates that w0 returns conservative variables if true
+            fixed_primitive_variables (Iterable) : series of primitive variables to keep fixed to their initial value
             progress_bar (bool) : whether to print out a progress bar
             dumpall (bool) : save all variables in snapshot
             cupy (bool) : whether to use GPUs via the cupy library
@@ -143,6 +141,12 @@ class EulerSolver(ODE):
         super().__init__(u0_fv, progress_bar=progress_bar)
         self.dumpall = dumpall
 
+        # fixed velocity
+        self.fixed_primitive_variables = fixed_primitive_variables
+        if fixed_primitive_variables is not None:
+            self.u0 = u0_fv
+            self.w0_cell_centers_cache = {}
+
     def f(self, t, u):
         return self.hydrodynamics(u)
 
@@ -150,10 +154,23 @@ class EulerSolver(ODE):
         """
         log a dictionary
         """
+        # fv conservatives to fv primitives
+        w = self.interpolate_fvprimitives_from_fvconservatives(
+            u=self.u,
+            p=self.p,
+            gw=(
+                2 * int(np.ceil(self.p[0] / 2)),
+                2 * int(np.ceil(self.p[1] / 2)),
+                2 * int(np.ceil(self.p[2] / 2)),
+            ),
+        )
 
-        u = self.u.asnamednumpy() if self.cupy else self.u.copy()
-        w = compute_primitives(u, gamma=self.gamma)
+        # convert to numpy
+        if self.cupy:
+            w = w.asnamednumpy()
+
         if self.dumpall:
+            u = self.u.asnamednumpy() if self.cupy else self.u.copy()
             fv_data = u.merge(w)
 
         log = {
@@ -178,46 +195,33 @@ class EulerSolver(ODE):
                 G (NamedArray) : y-direction conservative fluxes. has shape (5, nx, ny + 1, nz)
                 H (NamedArray) : z-direction conservative fluxes. has shape (5, nx, ny, nz + 1)
         """
+
         # find required number of ghost zones
         pmax = max(p)
         gw = max(int(np.ceil(pmax / 2)) + 1, 2 * int(np.ceil(pmax / 2)))
 
         # fv conservatives to fv primitives
-        u_bc = self.bc.apply(
-            u,
+        w_bc = self.interpolate_fvprimitives_from_fvconservatives(
+            u=u,
+            p=p,
             gw=(
-                2 * int(np.ceil(self.p[0] / 2)) + gw,
-                2 * int(np.ceil(self.p[1] / 2)) + gw,
-                2 * int(np.ceil(self.p[2] / 2)) + gw,
+                2 * int(np.ceil(p[0] / 2)) + gw,
+                2 * int(np.ceil(p[1] / 2)) + gw,
+                2 * int(np.ceil(p[2] / 2)) + gw,
             ),
         )
-        u_cell_centers = interpolate_cell_centers(u_bc, p=self.p)
-        w_cell_centers = compute_primitives(u_cell_centers, gamma=self.gamma)
-        w_bc = interpolate_fv_averages(w_cell_centers, p=self.p)
 
         # compute sound speed
         if np.min(w_bc.rho) < 0:
             raise BaseException("Negative density encountered.")
         if np.min(w_bc.P) < 0:
             raise BaseException("Negative pressure encountered.")
-        c_avg = compute_sound_speed(w=w_bc, gamma=self.gamma)
 
         # and time-step size
         if self.fixed_dt is None:
-            dt = (
-                self.CFL
-                * 1
-                / np.max(
-                    (np.abs(w_bc.vx) + c_avg) / self.h[0]
-                    + (np.abs(w_bc.vy) + c_avg) / self.h[1]
-                    + (np.abs(w_bc.vz) + c_avg) / self.h[2]
-                ).item()
-            )
+            dt = hydro_dt(w=w_bc, h=min(self.h), CFL=self.CFL, gamma=self.gamma)
         else:
             dt = self.fixed_dt
-
-        if dt < 0:
-            raise BaseException("Negative dt encountered.")
 
         # interpolate x face midpoints
         w_xy = conservative_interpolation(w_bc, p=p[2], axis=3, pos="c")
@@ -307,6 +311,37 @@ class EulerSolver(ODE):
         dudt += -(1 / self.h[2]) * (H[:, :, :, 1:, ...] - H[:, :, :, :-1, ...])
 
         return dt, dudt
+
+    def interpolate_fvprimitives_from_fvconservatives(
+        self,
+        u: NamedNumpyArray,
+        p: Tuple[int, int, int],
+        gw: Tuple[int, int, int],
+    ) -> NamedNumpyArray:
+        """
+        interpolate finite volume primitives from finite volume conservatives
+        args:
+            u (NamedArray) : finite volume conservative variables
+            p (Tuple[int, int, int]) : interpolation polynomial degree in 3D (px, py, pz)
+            gw (Tuple[int, int, int]) : number of 'ghost zones' on either side of the array u in each direction (gwx, gwy, gwz)
+            gamma (float) : specific heat ratio
+        returns:
+            w (NamedArray) : finite volume primitive variables
+        """
+        u_bc = self.bc.apply(u, gw=gw)
+        u_cell_centers = interpolate_cell_centers(u_bc, p=p)
+        w_cell_centers = compute_primitives(u_cell_centers, gamma=self.gamma)
+        if self.fixed_primitive_variables is not None and self.t > 0:
+            w0_cell_centers = self.w0_cell_centers_cache.get(gw, None)
+            if w0_cell_centers is None:
+                u0_bc = self.bc.apply(self.u0, gw=gw)
+                u0_cell_centers = interpolate_cell_centers(u0_bc, p=p)
+                w0_cell_centers = compute_primitives(u0_cell_centers, gamma=self.gamma)
+                self.w0_cell_centers_cache[gw] = w0_cell_centers
+            for var in self.fixed_primitive_variables:
+                setattr(w_cell_centers, var, getattr(w0_cell_centers, var))
+        w = interpolate_fv_averages(w_cell_centers, p=p)
+        return w
 
     def rkorder(self, *args, **kwargs):
         """

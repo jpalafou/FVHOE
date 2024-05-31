@@ -49,7 +49,11 @@ def compute_sound_speed(w: NamedNumpyArray, gamma: float) -> np.ndarray:
 
 
 def compute_fluxes(
-    u: NamedNumpyArray, w: NamedNumpyArray, gamma: float, dim: str
+    u: NamedNumpyArray,
+    w: NamedNumpyArray,
+    gamma: float,
+    dim: str,
+    include_pressure: bool = True,
 ) -> NamedNumpyArray:
     """
     Riemann Solvers and Numerical Methods for Fluid Dynamics by Toro
@@ -59,23 +63,29 @@ def compute_fluxes(
         w (array_like) : has variables names ["rho", "vx", "vy", "vz", "P"]
         gamma (float) : specific heat ratio
         dim (str) : "x", "y", "z"
+        include_pressure (bool) : whether to include pressure
     returns:
         out (array_like) : fluxes in specified direction, has variables names ["rho", "px", "py", "pz", "E"]
     """
     out = u.copy()
     v = getattr(w, "v" + dim)  # velocity in dim-direction
     out.rho = v * w.rho
-    out.px = v * u.px + (w.P if dim == "x" else 0.0)
-    out.py = v * u.py + (w.P if dim == "y" else 0.0)
-    out.pz = v * u.pz + (w.P if dim == "z" else 0.0)
-    out.E = v * (u.E + w.P)
+    out.px = v * u.px
+    out.py = v * u.py
+    out.pz = v * u.pz
+    out.E = v * u.E
+    if include_pressure:
+        pflux = getattr(out, "p" + dim)
+        setattr(out, "p" + dim, pflux + w.P)
+        Eflux = getattr(out, "E")
+        setattr(out, "E", Eflux + v * w.P)
     return out
 
 
 def advection_dt(
     hx: float,
     vx: float,
-    C: float = 0.8,
+    CFL: float = 0.8,
     hy: float = 1.0,
     hz: float = 1.0,
     vy: float = 0.0,
@@ -86,7 +96,7 @@ def advection_dt(
     args:
         hx (float) : mesh spacing in x-direction
         vx (float) : maximum advection velocity in x-direction
-        C (float) : Courant-Friedrichs-Lewy condition
+        CFL (float) : Courant-Friedrichs-Lewy condition
         hy (float) : mesh spacing in y-direction
         vy (float) : maximum advection velocity in y-direction
         hz (float) : mesh spacing in z-direction
@@ -94,5 +104,26 @@ def advection_dt(
     returns:
         out (float) : time-step size satisfying CFL
     """
-    out = C / (np.abs(vx / hx) + np.abs(vy / hy) + np.abs(vz / hz))
+    out = CFL / (np.abs(vx / hx) + np.abs(vy / hy) + np.abs(vz / hz))
+    return out
+
+
+def hydro_dt(w: NamedNumpyArray, h: float, CFL: float, gamma: float) -> float:
+    """
+    compute suitable time-step size for Euler equations
+    args:
+        w (NamedArray) : primitive variables
+        h (float) : mesh spacing
+        CFL (float) : Courant-Friedrichs-Lewy condition
+        gamma (float) : specific heat ratio
+    returns:
+        out (float) : time-step size
+    """
+    c = compute_sound_speed(w, gamma)
+    c_x = np.abs(w.vx) + c
+    c_y = np.abs(w.vy) + c
+    c_z = np.abs(w.vz) + c
+    out = CFL * h / np.max(c_x + c_y + c_z).item()
+    if out < 0:
+        raise BaseException("Negative dt encountered.")
     return out

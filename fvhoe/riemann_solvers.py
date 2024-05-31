@@ -27,12 +27,8 @@ def advection_upwind(
     v = getattr(wl, "v" + dim)[np.newaxis]  # velocity in dim-direction
 
     # get hydro fluxes
-    Fl = compute_fluxes(u=ul, w=wl, gamma=gamma, dim=dim)
-    Fr = compute_fluxes(u=ur, w=wr, gamma=gamma, dim=dim)
-
-    # plt.plot(Fl.rho[:,0,0])
-    # plt.plot(Fl.E[:,0,0])
-    # STOP
+    Fl = compute_fluxes(u=ul, w=wl, gamma=gamma, dim=dim, include_pressure=False)
+    Fr = compute_fluxes(u=ur, w=wr, gamma=gamma, dim=dim, include_pressure=False)
 
     # upwind
     out = np.where(v > 0, Fl, np.where(v < 0, Fr, 0))

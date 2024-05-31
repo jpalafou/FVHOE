@@ -65,7 +65,9 @@ def defined_NamedArray_class(cupy: bool = False):
             Return slice of array as numpy or cupy array.
             """
             if name in self.variable_name_set:
-                return self[self.variable_indices[name], ...]
+                return xp.array(
+                    self[self.variable_indices[name], ...], copy=self.xp == "cupy"
+                )
             else:
                 raise AttributeError(f"'NamedArray' object has no attribute '{name}'")
 
