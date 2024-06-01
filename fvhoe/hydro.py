@@ -5,17 +5,17 @@ import numpy as np
 def compute_primitives(u: NamedNumpyArray, gamma: float) -> NamedNumpyArray:
     """
     args:
-        u (NamedArray) : has variables names ["rho", "px", "py", "pz", "E"]
+        u (NamedArray) : has variables names ["rho", "mx", "my", "mz", "E"]
         gamma (float) : specific heat ratio
     returns:
         w (NamedArray) : has variables names ["rho", "vx", "vy", "vz", "P"]
     """
-    w = u.rename_variables({"px": "vx", "py": "vy", "pz": "vz", "E": "P"})
+    w = u.rename_variables({"mx": "vx", "my": "vy", "mz": "vz", "E": "P"})
     w.rho = u.rho
-    w.vx = u.px / u.rho
-    w.vy = u.py / u.rho
-    w.vz = u.pz / u.rho
-    w.P = (gamma - 1) * (u.E - 0.5 * (u.px * w.vx + u.py * w.vy + u.pz * w.vz))
+    w.vx = u.mx / u.rho
+    w.vy = u.my / u.rho
+    w.vz = u.mz / u.rho
+    w.P = (gamma - 1) * (u.E - 0.5 * (u.mx * w.vx + u.my * w.vy + u.mz * w.vz))
     return w
 
 
@@ -25,14 +25,14 @@ def compute_conservatives(w: NamedNumpyArray, gamma: float) -> NamedNumpyArray:
         w (NamedArray) : has variables names ["rho", "vx", "vy", "vz", "P"]
         gamma (float) : specific heat ratio
     returns:
-        u (NamedArray) : has variables names ["rho", "px", "py", "pz", "E"]
+        u (NamedArray) : has variables names ["rho", "mx", "my", "mz", "E"]
     """
-    u = w.rename_variables({"vx": "px", "vy": "py", "vz": "pz", "P": "E"})
+    u = w.rename_variables({"vx": "mx", "vy": "my", "vz": "mz", "P": "E"})
     u.rho = w.rho
-    u.px = w.rho * w.vx
-    u.py = w.rho * w.vy
-    u.pz = w.rho * w.vz
-    u.E = w.P / (gamma - 1) + 0.5 * (u.px * w.vx + u.py * w.vy + u.pz * w.vz)
+    u.mx = w.rho * w.vx
+    u.my = w.rho * w.vy
+    u.mz = w.rho * w.vz
+    u.E = w.P / (gamma - 1) + 0.5 * (u.mx * w.vx + u.my * w.vy + u.mz * w.vz)
     return u
 
 
@@ -59,24 +59,24 @@ def compute_fluxes(
     Riemann Solvers and Numerical Methods for Fluid Dynamics by Toro
     Page 3
     args:
-        u (array_like) : has variables names ["rho", "px", "py", "pz", "E"]
+        u (array_like) : has variables names ["rho", "mx", "my", "mz", "E"]]
         w (array_like) : has variables names ["rho", "vx", "vy", "vz", "P"]
         gamma (float) : specific heat ratio
         dim (str) : "x", "y", "z"
         include_pressure (bool) : whether to include pressure
     returns:
-        out (array_like) : fluxes in specified direction, has variables names ["rho", "px", "py", "pz", "E"]
+        out (array_like) : fluxes in specified direction, has variables names ["rho", "mx", "my", "mz", "E"]
     """
     out = u.copy()
     v = getattr(w, "v" + dim)  # velocity in dim-direction
     out.rho = v * w.rho
-    out.px = v * u.px
-    out.py = v * u.py
-    out.pz = v * u.pz
+    out.mx = v * u.mx
+    out.my = v * u.my
+    out.mz = v * u.mz
     out.E = v * u.E
     if include_pressure:
-        pflux = getattr(out, "p" + dim)
-        setattr(out, "p" + dim, pflux + w.P)
+        mflux = getattr(out, "m" + dim)
+        setattr(out, "m" + dim, mflux + w.P)
         Eflux = getattr(out, "E")
         setattr(out, "E", Eflux + v * w.P)
     return out
