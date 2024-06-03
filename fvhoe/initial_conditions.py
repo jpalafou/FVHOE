@@ -132,27 +132,39 @@ def slotted_disk(
     return out
 
 
-def sod(
+def shock_tube(
     x: np.ndarray,
     y: np.ndarray = None,
     z: np.ndarray = None,
     dim: str = "x",
+    shock_position: float = 0.5,
+    rho1_rho2: Tuple[float, float] = (1, 0.125),
+    v1_v2: Tuple[float, float] = (
+        0.0,
+        0,
+    ),
+    P1_P2: Tuple[float, float] = (1, 0.1),
 ) -> NamedNumpyArray:
     """
-    1D Sod shcock tube initial conditions
+    1D shock tube initial conditions (default is Sod's problem)
     args:
         x (array_like) : 3D mesh of x-points, shape (nx, ny, nz)
         y (array_like) : 3D mesh of y-points, shape (nx, ny, nz)
         z (array_like) : 3D mesh of z-points, shape (nx, ny, nz)
         dim (str) : "x", "y", "z"
+        shock_position (float) : position of the shock
+        rho1_rho2 (Tuple[float, float]) : left density, right density
+        v1_v2 (Tuple[float, float]) : left velocity, right velocity
+        P1_P2 (Tuple[float, float]) : left pressure, right pressure
     returns:
         out (NamedNumpyArray) : has variable names ["rho", "vx", "vy", "vz", "P"]
     """
     axis = {"x": x, "y": y, "z": z}[dim]
     out = NamedNumpyArray(np.asarray([np.empty_like(x)] * 5), primitive_names)
-    out.rho = np.where(axis < 0.5, 1, 0.125)
-    out.P = np.where(axis < 0.5, 1, 0.1)
-    out.vx[...] = 0
-    out.vy[...] = 0
-    out.vz[...] = 0
+    out.rho = np.where(axis < shock_position, rho1_rho2[0], rho1_rho2[1])
+    v = np.where(axis < shock_position, v1_v2[0], v1_v2[1])
+    out.vx[...] = v if dim == "x" else 0
+    out.vy[...] = v if dim == "x" else 0
+    out.vz[...] = v if dim == "x" else 0
+    out.P = np.where(axis < shock_position, P1_P2[0], P1_P2[1])
     return out

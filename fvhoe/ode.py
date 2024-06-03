@@ -114,7 +114,7 @@ class ODE(ABC):
             # update progress bar
             self.progress_bar_action(action="update")
             # target time actions
-            if self.t == target_time:
+            if self.t == target_time or self.t >= stopping_time:
                 self.snapshot()
                 # new target time
                 if self.t < stopping_time:
