@@ -12,6 +12,11 @@ from fvhoe.hydro import compute_conservatives, compute_primitives, hydro_dt
 from fvhoe.named_array import NamedCupyArray, NamedNumpyArray
 from fvhoe.ode import ODE
 from fvhoe.riemann_solvers import advection_upwind, hllc, llf
+from fvhoe.slope_limiting import (
+    broadcase_troubled_cells_to_troubled_interfaces,
+    detect_troubled_cells,
+    MUSCL_interpolations,
+)
 from typing import Iterable, Tuple
 
 
@@ -35,6 +40,8 @@ class EulerSolver(ODE):
         riemann_solver: str = "HLLC",
         conservative_ic: bool = False,
         fixed_primitive_variables: Iterable = None,
+        a_posteriori_slope_limiting: bool = False,
+        slope_limiter: str = "minmod",
         progress_bar: bool = True,
         dumpall: bool = False,
         cupy: bool = False,
@@ -69,6 +76,8 @@ class EulerSolver(ODE):
                 "HLLC" : advanced riemann solver for Euler equations
             conservative_ic (bool) : indicates that w0 returns conservative variables if true
             fixed_primitive_variables (Iterable) : series of primitive variables to keep fixed to their initial value
+            a_posteriori_slope_limiting (bool) : whether to apply a postreiori slope limiting
+            slope_limiter (str) : slope limiter code, "minmod", "moncen", None
             progress_bar (bool) : whether to print out a progress bar
             dumpall (bool) : save all variables in snapshot
             cupy (bool) : whether to use GPUs via the cupy library
@@ -150,47 +159,40 @@ class EulerSolver(ODE):
             self.u0 = u0_fv
             self.w0_cell_centers_cache = {}
 
+        # slope limiting
+        self.a_posteriori_slope_limiting = a_posteriori_slope_limiting
+        self.slope_limiter = slope_limiter
+
     def f(self, t, u):
         return self.hydrodynamics(u)
 
-    def snapshot(self):
+    def hydrodynamics(self, u: NamedNumpyArray) -> Tuple[float, NamedNumpyArray]:
         """
-        log a dictionary
+        compute the Euler equation dynamics from cell-average conserved values u
+        args:
+            u (NamedNumpyArray) : fv averages of conservative variables. has shape (5, nx, ny, nz)
+        returns:
+            dt, dudt (float, NamedNumpyArray) : time-step size, conservative variable dynamics
         """
-        # fv conservatives to fv primitives
-        w = self.interpolate_fvprimitives_from_fvconservatives(
-            u=self.u,
-            p=self.p,
-            gw=(
-                2 * int(np.ceil(self.p[0] / 2)),
-                2 * int(np.ceil(self.p[1] / 2)),
-                2 * int(np.ceil(self.p[2] / 2)),
-            ),
-        )
+        # high-order fluxes
+        dt, (F, G, H) = self.hydrofluxes(u=u, p=self.p)
 
-        # convert to numpy
-        if self.cupy:
-            w = w.asnamednumpy()
+        if self.a_posteriori_slope_limiting:
+            self.revise_fluxes(u=u, F=F, G=G, H=H, dt=dt)
 
-        if self.dumpall:
-            u = self.u.asnamednumpy() if self.cupy else self.u.copy()
-            fv_data = u.merge(w)
-
-        log = {
-            "t": self.t,
-            "fv": fv_data if self.dumpall else w,
-        }
-        self.snapshots.append(log)
-        self.snapshot_times.append(self.t)
+        # compute conservative variable dynamics
+        dudt = self.euler_equation(F=F, G=G, H=H)
+        return dt, dudt
 
     def hydrofluxes(
-        self, u: NamedNumpyArray, p: Tuple[int, int, int]
+        self, u: NamedNumpyArray, p: Tuple[int, int, int], slope_limiter: str = None
     ) -> Tuple[float, Tuple[NamedNumpyArray, NamedNumpyArray, NamedNumpyArray]]:
         """
         compute the Euler equation fluxes F, G, H with degree p polynomials
         args:
             u (NamedArray) : cell-averages of conservative variables. has shape (5, nx, ny, nz)
             p (Tuple[int, int, int]) : polynomial interpolation degree (px, py, pz)
+            limiter (str) : None, 'minmod', 'moncen'
         returns:
             dt, (F, G, H) (tuple) : time-step size and numerical fluxes
                 dt (float) : time-step size
@@ -198,6 +200,14 @@ class EulerSolver(ODE):
                 G (NamedArray) : y-direction conservative fluxes. has shape (5, nx, ny + 1, nz)
                 H (NamedArray) : z-direction conservative fluxes. has shape (5, nx, ny, nz + 1)
         """
+        if slope_limiter is None:
+            limit_slopes = False
+        elif max(p) <= 1:
+            limit_slopes = True
+        else:
+            raise ValueError(
+                "Slope limiting is only implemented for degree 1 polynomial interpolation."
+            )
 
         # find required number of ghost zones
         pmax = max(p)
@@ -229,20 +239,35 @@ class EulerSolver(ODE):
         # interpolate x face midpoints
         w_xy = conservative_interpolation(w_bc, p=p[2], axis=3, pos="c")
         w_x = conservative_interpolation(w_xy, p=p[1], axis=2, pos="c")
-        w_x_face_center_l = conservative_interpolation(w_x, p=p[0], axis=1, pos="l")
-        w_x_face_center_r = conservative_interpolation(w_x, p=p[0], axis=1, pos="r")
+        if limit_slopes and p[0] == 1:
+            w_x_face_center_l, w_x_face_center_r = MUSCL_interpolations(
+                w_x, axis=1, limiter=slope_limiter
+            )
+        else:
+            w_x_face_center_l = conservative_interpolation(w_x, p=p[0], axis=1, pos="l")
+            w_x_face_center_r = conservative_interpolation(w_x, p=p[0], axis=1, pos="r")
 
         # interpolate y face midpoints
         w_yz = conservative_interpolation(w_bc, p=p[0], axis=1, pos="c")
         w_y = conservative_interpolation(w_yz, p=p[2], axis=3, pos="c")
-        w_y_face_center_l = conservative_interpolation(w_y, p=p[1], axis=2, pos="l")
-        w_y_face_center_r = conservative_interpolation(w_y, p=p[1], axis=2, pos="r")
+        if limit_slopes and p[1] == 1:
+            w_y_face_center_l, w_y_face_center_r = MUSCL_interpolations(
+                w_y, axis=2, limiter=slope_limiter
+            )
+        else:
+            w_y_face_center_l = conservative_interpolation(w_y, p=p[1], axis=2, pos="l")
+            w_y_face_center_r = conservative_interpolation(w_y, p=p[1], axis=2, pos="r")
 
         # interpolate z face midpoints
         w_zx = conservative_interpolation(w_bc, p=p[1], axis=2, pos="c")
         w_z = conservative_interpolation(w_zx, p=p[0], axis=1, pos="c")
-        w_z_face_center_l = conservative_interpolation(w_z, p=p[2], axis=3, pos="l")
-        w_z_face_center_r = conservative_interpolation(w_z, p=p[2], axis=3, pos="r")
+        if limit_slopes and p[2] == 1:
+            w_z_face_center_l, w_z_face_center_r = MUSCL_interpolations(
+                w_z, axis=3, limiter=slope_limiter
+            )
+        else:
+            w_z_face_center_l = conservative_interpolation(w_z, p=p[2], axis=3, pos="l")
+            w_z_face_center_r = conservative_interpolation(w_z, p=p[2], axis=3, pos="r")
 
         # pointwise numerical fluxes
         f_face_center = self.riemann_solver(
@@ -297,23 +322,73 @@ class EulerSolver(ODE):
 
         return dt, (F, G, H)
 
-    def hydrodynamics(self, u: NamedNumpyArray) -> Tuple[float, NamedNumpyArray]:
+    def revise_fluxes(
+        self,
+        u: NamedNumpyArray,
+        F: NamedNumpyArray,
+        G: NamedNumpyArray,
+        H: NamedNumpyArray,
+        dt: float,
+    ) -> None:
         """
-        compute the Euler equation dynamics from cell-average conserved values u
+        revise fluxes to prevent oscillations
         args:
             u (NamedNumpyArray) : fv averages of conservative variables. has shape (5, nx, ny, nz)
+            F (NamedNumpyArray) : x-fluxes. has shape (5, nx + 1, ny, nz)
+            G (NamedNumpyArray) : y-fluxes. has shape (5, nx, ny + 1, nz)
+            H (NamedNumpyArray) : z-fluxes. has shape (5, nx, ny, nz + 1)
+            dt (float) : time-step size
         returns:
-            dt, dudt (float, NamedNumpyArray) : time-step size, conservative variable dynamics
+            None : revise fluxes in place
         """
-        # high-order fluxes
-        dt, (F, G, H) = self.hydrofluxes(u=u, p=self.p)
+        # compute candidate solution
+        ustar = u + dt * self.euler_equation(F=F, G=G, H=H)
+        ustar_bc = self.bc.apply(ustar, gw=(1, 1, 1))
+        u_bc = self.bc.apply(u, gw=(1, 1, 1))
 
-        # euler equations
+        # detect troubled cells
+        troubled_cells = detect_troubled_cells(
+            u=u_bc,
+            u_candidate=ustar_bc,
+            eps=1e-5,
+            xp={True: "cupy", False: "numpy"}[self.cupy],
+        )
+
+        if not np.any(troubled_cells):
+            # great, no troubled cells!
+            return
+
+        # p=1, slope-limited fluxes
+        _, (Fl, Gl, Hl) = self.hydrofluxes(
+            u=u,
+            p=(int(self.p[0] > 0), int(self.p[1] > 0), int(self.p[2] > 0)),
+            slope_limiter=self.slope_limiter,
+        )
+        troubled_x, troubled_y, troubled_z = (
+            broadcase_troubled_cells_to_troubled_interfaces(
+                troubled_cells, xp={True: "cupy", False: "numpy"}[self.cupy]
+            )
+        )
+        F[...] = np.where(troubled_x, Fl, F)
+        G[...] = np.where(troubled_y, Gl, G)
+        H[...] = np.where(troubled_z, Hl, H)
+
+    def euler_equation(
+        self, F: NamedNumpyArray, G: NamedNumpyArray, H: NamedNumpyArray
+    ) -> NamedNumpyArray:
+        """
+        compute the Euler equation dynamics from fv-average conserved values u
+        args:
+            F (NamedNumpyArray) : x-fluxes. has shape (5, nx + 1, ny, nz)
+            G (NamedNumpyArray) : y-fluxes. has shape (5, nx, ny + 1, nz)
+            H (NamedNumpyArray) : z-fluxes. has shape (5, nx, ny, nz + 1)
+        returns:
+            dudt (NamedNumpyArray) : conservative variable dynamics
+        """
         dudt = -(1 / self.h[0]) * (F[:, 1:, ...] - F[:, :-1, ...])
         dudt += -(1 / self.h[1]) * (G[:, :, 1:, ...] - G[:, :, :-1, ...])
         dudt += -(1 / self.h[2]) * (H[:, :, :, 1:, ...] - H[:, :, :, :-1, ...])
-
-        return dt, dudt
+        return dudt
 
     def interpolate_fvprimitives_from_fvconservatives(
         self,
@@ -345,6 +420,36 @@ class EulerSolver(ODE):
                 setattr(w_cell_centers, var, getattr(w0_cell_centers, var))
         w = interpolate_fv_averages(w_cell_centers, p=p)
         return w
+
+    def snapshot(self):
+        """
+        log a dictionary
+        """
+        # fv conservatives to fv primitives
+        w = self.interpolate_fvprimitives_from_fvconservatives(
+            u=self.u,
+            p=self.p,
+            gw=(
+                2 * int(np.ceil(self.p[0] / 2)),
+                2 * int(np.ceil(self.p[1] / 2)),
+                2 * int(np.ceil(self.p[2] / 2)),
+            ),
+        )
+
+        # convert to numpy
+        if self.cupy:
+            w = w.asnamednumpy()
+
+        if self.dumpall:
+            u = self.u.asnamednumpy() if self.cupy else self.u.copy()
+            fv_data = u.merge(w)
+
+        log = {
+            "t": self.t,
+            "fv": fv_data if self.dumpall else w,
+        }
+        self.snapshots.append(log)
+        self.snapshot_times.append(self.t)
 
     def rkorder(self, *args, **kwargs):
         """
