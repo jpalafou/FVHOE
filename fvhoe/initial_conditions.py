@@ -168,3 +168,42 @@ def shock_tube(
     out.vz[...] = v if dim == "x" else 0
     out.P = np.where(axis < shock_position, P1_P2[0], P1_P2[1])
     return out
+
+
+def sedov_blast(
+    x: np.ndarray,
+    y: np.ndarray = None,
+    z: np.ndarray = None,
+    dims: str = "xy",
+    center: Tuple[float, float, float] = (0.5, 0.5, 0.5),
+    radius: float = 0.1,
+    rho0: float = 1,
+    Pmin_Pmax: Tuple[float, float] = (1, 1e-3),
+) -> NamedNumpyArray:
+    """
+    Sedov blast wave initial conditions
+    args:
+        x (array_like) : 3D mesh of x-points, shape (nx, ny, nz)
+        y (array_like) : 3D mesh of y-points, shape (nx, ny, nz)
+        z (array_like) : 3D mesh of z-points, shape (nx, ny, nz)
+        dims (str) : contains "x", "y", and/or "z"
+        center (Tuple[float, float, float]) : center of the blast
+        radius (float) : radius of the blast
+        rho0 (float) : ambient density
+        Pmin_Pmax (Tuple[float, float]) : min pressure, max pressure
+    returns:
+        out (NamedNumpyArray) : has variable names ["rho", "vx", "vy", "vz", "P"]
+    """
+    out = NamedNumpyArray(np.asarray([np.empty_like(x)] * 5), primitive_names)
+    xc, yc, zc = x - center[0], y - center[1], z - center[2]
+    rsq = np.zeros_like(xc)
+    rsq += np.square(xc) if "x" in dims else 0
+    rsq += np.square(yc) if "y" in dims else 0
+    rsq += np.square(zc) if "z" in dims else 0
+    inside_blast = rsq < radius**2
+    out.rho[...] = rho0
+    out.vx[...] = 0
+    out.vy[...] = 0
+    out.vz[...] = 0
+    out.P = np.where(inside_blast, Pmin_Pmax[0], Pmin_Pmax[1])
+    return out
