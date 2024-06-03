@@ -1,2 +1,2 @@
 Neumann boundary conditions
-Slotted disk
+sod test mass conservation

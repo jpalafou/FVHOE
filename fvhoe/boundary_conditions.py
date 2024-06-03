@@ -1,8 +1,8 @@
 from dataclasses import dataclass
+from itertools import product
 from functools import partial
 from fvhoe.fv import get_view, uniform_fv_mesh
 from fvhoe.named_array import NamedNumpyArray
-from itertools import product
 import numpy as np
 from typing import Iterable, Tuple
 
@@ -198,6 +198,36 @@ def set_reflective_bc(
     if negative:
         u[gv(cut=(0, num_ghost))] = -1 * u[gv(cut=(0, num_ghost))]
 
+    return u
+
+
+def set_free_bc(u: np.ndarray, num_ghost: int, dim: str, pos: str) -> None:
+    """
+    set free boundaries
+    args:
+        u (array_like) : padded array
+        num_ghost (int) : number of 'ghost zones' on  pos end of domain
+        dim (str) : dimension
+            "x" : axis = 0
+            "y" : axis = 1
+            "z" : axis = 2
+        pos (str) : left or right boundary of selected dimension
+            "l" : left
+            "r" : right
+    returns:
+        u : (array_like) : u with boundary conditions applied
+    """
+    axis = {"x": 0, "y": 1, "z": 2}[dim]
+    gv = partial(get_view, ndim=u.ndim, axis=axis)
+    pad_width = [(0, 0), (0, 0), (0, 0)]
+    if pos == "l":
+        u[...] = u[gv(step=-1)]
+        set_free_bc(u=u, num_ghost=num_ghost, dim=dim, pos="r")
+        u[...] = u[gv(step=-1)]
+        return u
+
+    pad_width[axis] = (0, num_ghost)
+    u[...] = np.pad(u[gv(cut=(0, num_ghost))], pad_width=pad_width, mode="edge")
     return u
 
 
@@ -410,6 +440,10 @@ class BoundaryCondition:
                         num_ghost=num_ghost,
                         dim=dim,
                         pos=pos,
+                    )
+                case "free":
+                    ubc = set_free_bc(
+                        u=getattr(out, var), num_ghost=num_ghost, dim=dim, pos=pos
                     )
                 case None:
                     continue

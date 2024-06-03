@@ -45,10 +45,10 @@ def sinus(
     )
 
     # assign other variables
-    out.P = P
-    out.vx = vx
-    out.vy = vy
-    out.vz = vz
+    out.P[...] = P
+    out.vx[...] = vx
+    out.vy[...] = vy
+    out.vz[...] = vz
     return out
 
 
@@ -89,10 +89,10 @@ def square(
     out.rho = np.where(inside_square, rho_min_max[1], rho_min_max[0])
 
     # assign other variables
-    out.P = P
-    out.vx = vx
-    out.vy = vy
-    out.vz = vz
+    out.P[...] = P
+    out.vx[...] = vx
+    out.vy[...] = vy
+    out.vz[...] = vz
     return out
 
 
@@ -123,10 +123,36 @@ def slotted_disk(
         rsq < 0.15**2, np.logical_not(np.logical_and(np.abs(xc) < 0.025, y < 0.85))
     )
     out.rho = np.where(inside_disk, rho_min_max[1], rho_min_max[0])
-    out.vx = -yc
-    out.vy = xc
-    out.vz = 0
+    out.vx[...] = -yc
+    out.vy[...] = xc
+    out.vz[...] = 0
 
     # other variables
-    out.P = P
+    out.P[...] = P
+    return out
+
+
+def sod(
+    x: np.ndarray,
+    y: np.ndarray = None,
+    z: np.ndarray = None,
+    dim: str = "x",
+) -> NamedNumpyArray:
+    """
+    1D Sod shcock tube initial conditions
+    args:
+        x (array_like) : 3D mesh of x-points, shape (nx, ny, nz)
+        y (array_like) : 3D mesh of y-points, shape (nx, ny, nz)
+        z (array_like) : 3D mesh of z-points, shape (nx, ny, nz)
+        dim (str) : "x", "y", "z"
+    returns:
+        out (NamedNumpyArray) : has variable names ["rho", "vx", "vy", "vz", "P"]
+    """
+    axis = {"x": x, "y": y, "z": z}[dim]
+    out = NamedNumpyArray(np.asarray([np.empty_like(x)] * 5), primitive_names)
+    out.rho = np.where(axis < 0.5, 1, 0.125)
+    out.P = np.where(axis < 0.5, 1, 0.1)
+    out.vx[...] = 0
+    out.vy[...] = 0
+    out.vz[...] = 0
     return out

@@ -4,14 +4,14 @@ from fvhoe.config import conservative_names
 from fvhoe.fv import (
     fv_average,
     conservative_interpolation,
-    transverse_reconstruction,
     interpolate_cell_centers,
     interpolate_fv_averages,
+    transverse_reconstruction,
 )
 from fvhoe.hydro import compute_conservatives, compute_primitives, hydro_dt
 from fvhoe.named_array import NamedCupyArray, NamedNumpyArray
 from fvhoe.ode import ODE
-from fvhoe.riemann_solvers import advection_upwind, HLLC
+from fvhoe.riemann_solvers import advection_upwind, hllc, llf
 from typing import Iterable, Tuple
 
 
@@ -100,12 +100,15 @@ class EulerSolver(ODE):
         self.gamma = gamma
 
         # riemann solver
-        if riemann_solver == "HLLC":
-            self.riemann_solver = HLLC
-        elif riemann_solver == "advection_upwind":
-            self.riemann_solver = advection_upwind
-        else:
-            raise TypeError(f"Invalid Riemann solver {riemann_solver}")
+        match riemann_solver:
+            case "advection_upwind":
+                self.riemann_solver = advection_upwind
+            case "llf":
+                self.riemann_solver = llf
+            case "hllc":
+                self.riemann_solver = hllc
+            case _:
+                raise TypeError(f"Invalid Riemann solver {riemann_solver}")
 
         # GPU
         self.cupy = cupy

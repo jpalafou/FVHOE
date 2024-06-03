@@ -1,34 +1,34 @@
 import numpy as np
 from fvhoe.hydro import compute_conservatives, compute_fluxes, compute_sound_speed
+from fvhoe.named_array import NamedNumpyArray
 
 
 def advection_upwind(
-    wl: np.ndarray,
-    wr: np.ndarray,
+    wl: NamedNumpyArray,
+    wr: NamedNumpyArray,
     gamma: float,
     dim: str,
-) -> np.ndarray:
+) -> NamedNumpyArray:
     """
-    Riemann Solvers and Numerical Methods for Fluid Dynamics by Toro
-    Page 331
+    upwinding numerical fluxes, pressure is assumed to be 0
     args:
-        wl (array_like) : values to the left of interface, NamedArray with ["rho", "vx", "vy", "vz", "P"]'
-        wr (array_like) : values to the right of interface, NamedArray with ["rho", "vx", "vy", "vz", "P"]
+        wl (NamedArray) : primitive variables to the left of interface
+        wr (NamedArray) : primitive variables to the right of interface
         gamma (float) : specific heat ratio
         dim (str) : "x", "y", "z"
     returns:
-        out (array_like) : upwinding flux for constant advection, NamedArray with ["rho", "px", "py", "pz", "E"]
+        out (NamedArray) : upwinding fluxes for conservative variables
     """
     # compute conservative variables
     ul = compute_conservatives(wl, gamma)
     ur = compute_conservatives(wr, gamma)
 
-    # assume velocity is continuous across interface
-    v = getattr(wl, "v" + dim)[np.newaxis]  # velocity in dim-direction
-
     # get hydro fluxes
     Fl = compute_fluxes(u=ul, w=wl, gamma=gamma, dim=dim, include_pressure=False)
     Fr = compute_fluxes(u=ur, w=wr, gamma=gamma, dim=dim, include_pressure=False)
+
+    # assume velocity is continuous across interface
+    v = getattr(wl, "v" + dim)[np.newaxis]  # velocity in dim-direction
 
     # upwind
     out = np.where(v > 0, Fl, np.where(v < 0, Fr, 0))
@@ -36,86 +36,119 @@ def advection_upwind(
     return out
 
 
-def HLLC(
-    wl: np.ndarray,
-    wr: np.ndarray,
-    gamma: float,
-    dir: str,
-) -> np.ndarray:
+def llf(
+    wl: NamedNumpyArray, wr: NamedNumpyArray, gamma: float, dim: str
+) -> NamedNumpyArray:
     """
+    llf numerical fluxes
+    Riemann Solvers and Numerical Methods for Fluid Dynamics by Toro
+    Page 331
     args:
-        wl/r (array_like) : array of primitive variables to the left/right of the interface
-            density, pressure, x-velocity, y-velocity, z-velocity
+        wl (NamedArray) : primitive variables to the left of interface
+        wr (array_like) : primitive variables to the right of interface
         gamma (float) : specific heat ratio
-        dir (str) : "x", "y", "z"
+        dim (str) : "x", "y", "z"
     returns:
-        out (array_like) : HLLC flux
+        out (NamedArray) : llf fluxes for conservative variables
     """
+
+    # compute conservative variables
     ul = compute_conservatives(wl, gamma)
     ur = compute_conservatives(wr, gamma)
 
-    # single out velocities and momentums
-    vslice = {"x": 2, "y": 3, "z": 4}[dir]
-    vl, vr = wl[vslice, ...], wr[vslice, ...]  # velocities
-    cl, cr = (
-        compute_sound_speed(wl, gamma),
-        compute_sound_speed(wr, gamma),
-    )  # sound speeds
+    # get hydro fluxes
+    Fl = compute_fluxes(u=ul, w=wl, gamma=gamma, dim=dim)
+    Fr = compute_fluxes(u=ur, w=wr, gamma=gamma, dim=dim)
+
+    # get sound speeds
+    sl = getattr(wl, "v" + dim) + compute_sound_speed(wl, gamma)
+    sr = getattr(wr, "v" + dim) + compute_sound_speed(wr, gamma)
+    smax = np.maximum(sl, sr)
+
+    # llf
+    out = 0.5 * (Fl + Fr) - 0.5 * smax * (ur - ul)
+    out = ul.__class__(out, names=ul.variable_names)
+    return out
+
+
+def hllc(
+    wl: NamedNumpyArray,
+    wr: NamedNumpyArray,
+    gamma: float,
+    dim: str,
+) -> NamedNumpyArray:
+    """
+    hllc numerical fluxes
+    args:
+        wl (NamedArray) : primitive variables to the left of interface
+        wr (NamedArray) : primitive variables to the right of interface
+        gamma (float) : specific heat ratio
+        dir (str) : "x", "y", "z"
+    returns:
+        out (array_like) : hllc fluxes for conservative variables
+    """
+
+    # compute conservative variables
+    ul = compute_conservatives(wl, gamma)
+    ur = compute_conservatives(wr, gamma)
+
+    # get hydro fluxes
+    Fl = compute_fluxes(u=ul, w=wl, gamma=gamma, dim=dim)
+    Fr = compute_fluxes(u=ur, w=wr, gamma=gamma, dim=dim)
+
+    # sound speed
+    cl = compute_sound_speed(wl, gamma)
+    cr = compute_sound_speed(wr, gamma)
+
+    # single out relevant velocities
+    vl = getattr(wl, "v" + dim)
+    vr = getattr(wr, "v" + dim)
 
     # pressure estimate
-    rho_bar = 0.5 * (wl[0, ...] + wl[0, ...])
-    c_bar = 0.5 * (cl + cr)
-    P_star = np.max(
-        0, 0.5 * (wl[1, ...] + wr[1, ...]) - 0.5 * (vr - vl) * rho_bar * c_bar
-    )
+    rhobar = 0.5 * (wl.rho + wr.rho)
+    cbar = 0.5 * (cl + cr)
+    Ppvrs = 0.5 * (wl.P + wr.P) - 0.5 * (vr - vl) * rhobar * cbar
+    Pstar = np.maximum(0, Ppvrs)
 
     # wave speed estimates
     ql = np.where(
-        P_star <= wl[1, ...],
+        Pstar <= wl.P,
         1,
-        np.sqrt(1 + ((gamma + 1) / (2 * gamma)) * (P_star / wl[1, ...] - 1)),
+        np.sqrt(1 + ((gamma + 1) / (2 * gamma)) * (Pstar / wl.P - 1)),
     )
     qr = np.where(
-        P_star <= wr[1, ...],
+        Pstar <= wr.P,
         1,
-        np.sqrt(1 + ((gamma + 1) / (2 * gamma)) * (P_star / wr[1, ...] - 1)),
+        np.sqrt(1 + ((gamma + 1) / (2 * gamma)) * (Pstar / wr.P - 1)),
     )
-    Sl, Sr = vl - cl * ql, vr + cr * qr
-    S_star_numerator = (
-        wr[1, ...]
-        - wl[1, ...]
-        + wl[0, ...] * vl * (Sl - vl)
-        - wr[0, ...] * vr * (Sr - vr)
-    )
-    S_star_denominator = wl[0, ...] * (Sl - vl) - wr[0, ...] * (Sr - vr)
-    S_star = S_star_numerator / S_star_denominator
+    Sl = vl - cl * ql
+    Sr = vr + cr * qr
+    Sstar_top = wr.P - wl.P + wl.rho * vl * (Sl - vl) - wr.rho * vr * (Sr - vr)
+    Sstar_bottom = wl.rho * (Sl - vl) - wr.rho * (Sr - vr)
+    Sstar = Sstar_top / Sstar_bottom
 
-    # star conserved variables
-    u_star_l = wl[0, ...] * ((Sl - vl) / (Sl - S_star)) * np.ones_like(wl)
-    u_star_r = wr[0, ...] * ((Sr - vr) / (Sr - S_star)) * np.ones_like(wr)
-    u_star_l[2, ...] *= wl[2, ...]
-    u_star_r[2, ...] *= wr[2, ...]
-    u_star_l[3, ...] *= wl[3, ...]
-    u_star_r[3, ...] *= wr[3, ...]
-    u_star_l[4, ...] *= wl[4, ...]
-    u_star_r[4, ...] *= wr[4, ...]
-    u_star_l_E = ul[1, ...] / wl[0, ...] + (S_star - vl) * (
-        S_star + wl[1, ...] / (wl[0, ...] * (Sl - vl))
-    )
-    u_star_r_E = ur[1, ...] / wr[0, ...] + (S_star - vr) * (
-        S_star + wr[1, ...] / (wr[0, ...] * (Sr - vr))
-    )
-    u_star_l[1, ...] *= u_star_l_E
-    u_star_r[1, ...] *= u_star_r_E
+    # star conserved variables and fluxes
+    ustarl = ul.copy()
+    ustarl.rho[...] = 1
+    ustarl.mx[...] = wl.vx if dim != "x" else Sstar
+    ustarl.my[...] = wl.vy if dim != "y" else Sstar
+    ustarl.mz[...] = wl.vz if dim != "z" else Sstar
+    ustarl.E[...] = ul.E / wl.rho + (Sstar - vl) * (Sstar + wl.P / (wl.rho * (Sl - vl)))
+    ustarl *= wl.rho * (Sl - vl) / (Sl - Sstar)
+    ustarr = ur.copy()
+    ustarr.rho[...] = 1
+    ustarr.mx[...] = wr.vx if dim != "x" else Sstar
+    ustarr.my[...] = wr.vy if dim != "y" else Sstar
+    ustarr.mz[...] = wr.vz if dim != "z" else Sstar
+    ustarr.E[...] = ur.E / wr.rho + (Sstar - vr) * (Sstar + wr.P / (wr.rho * (Sr - vr)))
+    ustarr *= wr.rho * (Sr - vr) / (Sr - Sstar)
+    Fstarl = Fl + Sl * (ustarl - ul)
+    Fstarr = Fr + Sr * (ustarr - ur)
 
     # HLLC flux
-    Fl = compute_fluxes(u=ul, w=wl, gamma=gamma, dir=dir)
-    Fr = compute_fluxes(u=ur, w=wr, gamma=gamma, dir=dir)
-    F_star_l = Fl + Sl * (u_star_l - ul)
-    F_star_r = Fr + Sr * (u_star_r - ur)
     out = Fl
-    out = np.where(np.logical_and(Sl <= 0, 0 <= S_star), F_star_l, out)
-    out = np.where(np.logical_and(S_star <= 0, 0 <= Sr), F_star_r, out)
+    out = np.where(np.logical_and(Sl <= 0, 0 <= Sstar), Fstarl, out)
+    out = np.where(np.logical_and(Sstar <= 0, 0 <= Sr), Fstarr, out)
     out = np.where(0 >= Sr, Fr, out)
 
     return out
