@@ -205,5 +205,5 @@ def sedov_blast(
     out.vx[...] = 0
     out.vy[...] = 0
     out.vz[...] = 0
-    out.P = np.where(inside_blast, Pmin_Pmax[0], Pmin_Pmax[1])
+    out.P = np.where(inside_blast, Pmin_Pmax[1], Pmin_Pmax[0])
     return out
