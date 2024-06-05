@@ -17,6 +17,7 @@ from fvhoe.slope_limiting import (
     detect_troubled_cells,
     MUSCL_interpolations,
 )
+from fvhoe.visualization import plot_1d_slice, plot_2d_slice
 from typing import Iterable, Tuple
 
 
@@ -164,6 +165,14 @@ class EulerSolver(ODE):
         # slope limiting
         self.a_posteriori_slope_limiting = a_posteriori_slope_limiting
         self.slope_limiter = slope_limiter
+
+        # plotting functions
+        self.plot_1d_slice = lambda *args, **kwargs: plot_1d_slice(
+            self, *args, **kwargs
+        )
+        self.plot_2d_slice = lambda *args, **kwargs: plot_2d_slice(
+            self, *args, **kwargs
+        )
 
     def f(self, t, u):
         return self.hydrodynamics(u)
@@ -467,124 +476,3 @@ class EulerSolver(ODE):
                 self.ssprk3(*args, **kwargs)
             case _:
                 self.rk4(*args, **kwargs)
-
-    def plot_1d_slice(
-        self,
-        ax,
-        param: str,
-        t: float = None,
-        x=None,
-        y=None,
-        z=None,
-        verbose: bool = True,
-        **kwargs,
-    ) -> None:
-        """
-        plot a 1-dimensional slice by specifying t and two of three spatial dimensions x, y, and z
-        """
-        if sum([x is None, y is None, z is None]) != 1:
-            raise BaseException("One out of the three coordinates x-y-z must be None")
-        t = max(self.snapshot_times) if t is None else t
-        n = np.argmin(np.abs(np.array(list(self.snapshot_times)) - t))
-        t = list(self.snapshot_times)[n]
-        if x is None:
-            j, k = np.argmin(np.abs(self.y - y)), np.argmin(np.abs(self.z - z))
-            y, z = self.y[j], self.z[k]
-            x = self.x
-            x_for_plotting = self.x
-            y_for_plotting = getattr(self.snapshots[n]["fv"], param)[:, j, k]
-        elif y is None:
-            i, k = np.argmin(np.abs(self.x - x)), np.argmin(np.abs(self.z - z))
-            x, z = self.x[i], self.z[k]
-            y = self.y
-            x_for_plotting = self.y
-            y_for_plotting = getattr(self.snapshots[n]["fv"], param)[i, :, k]
-        elif z is None:
-            i, j = np.argmin(np.abs(self.x - x)), np.argmin(np.abs(self.y - y))
-            x, y = self.x[i], self.y[j]
-            z = self.z
-            x_for_plotting = self.z
-            y_for_plotting = getattr(self.snapshots[n]["fv"], param)[i, j, :]
-        if verbose:
-            t_message = f"{t:.2f}"
-            x_message = (
-                f"{x:.2f}"
-                if (isinstance(x, int) or isinstance(x, float))
-                else f"[{x[0]:.2f}, {x[-1]:.2f}]"
-            )
-            y_message = (
-                f"{y:.2f}"
-                if (isinstance(y, int) or isinstance(y, float))
-                else f"[{y[0]:.2f}, {y[-1]:.2f}]"
-            )
-            z_message = (
-                f"{z:.2f}"
-                if (isinstance(z, int) or isinstance(z, float))
-                else f"[{z[0]:.2f}, {z[-1]:.2f}]"
-            )
-            print(f"t={t_message}, x={x_message}, y={y_message}, z={z_message}")
-        return ax.plot(x_for_plotting, y_for_plotting, **kwargs)
-
-    def plot_2d_slice(
-        self,
-        ax,
-        param: str,
-        t: float = None,
-        x=None,
-        y=None,
-        z=None,
-        verbose: bool = True,
-        **kwargs,
-    ) -> None:
-        """
-        plot a 2-dimensional slice by specifying t and one of three spatial dimensions x, y, and z
-        """
-        if sum([x is None, y is None, z is None]) != 2:
-            raise BaseException("Two out of the three coordinates x-y-z must be None")
-        t = max(self.snapshot_times) if t is None else t
-        n = np.argmin(np.abs(np.array(list(self.snapshot_times)) - t))
-        t = list(self.snapshot_times)[n]
-        if x is None and y is None:
-            k = np.argmin(np.abs(self.z - z))
-            z = self.z[k]
-            x, y = self.x, self.y
-            z_for_plotting = getattr(self.snapshots[n]["fv"], param)[:, :, k]
-            z_for_plotting = np.rot90(z_for_plotting, 1)
-            horizontal_axis, vertical_axis = "x", "y"
-            limits = (x[0], x[-1], y[0], y[-1])
-        elif y is None and z is None:
-            i = np.argmin(np.abs(self.x - x))
-            x = self.x[i]
-            y, z = self.y, self.z
-            z_for_plotting = getattr(self.snapshots[n]["fv"], param)[i, :, :]
-            z_for_plotting = np.rot90(z_for_plotting, 1)
-            horizontal_axis, vertical_axis = "y", "z"
-            limits = (y[0], y[-1], z[0], z[-1])
-        elif x is None and z is None:
-            j = np.argmin(np.abs(self.y - y))
-            y = self.y[j]
-            z, x = self.z, self.x
-            z_for_plotting = getattr(self.snapshots[n]["fv"], param)[:, j, :]
-            z_for_plotting = np.rot90(z_for_plotting, 1)
-            horizontal_axis, vertical_axis = "x", "z"
-            limits = (x[0], x[-1], z[0], z[-1])
-        if verbose:
-            t_message = f"{t:.2f}"
-            x_message = (
-                f"{x:.2f}"
-                if (isinstance(x, int) or isinstance(x, float))
-                else f"[{x[0]:.2f}, {x[-1]:.2f}]"
-            )
-            y_message = (
-                f"{y:.2f}"
-                if (isinstance(y, int) or isinstance(y, float))
-                else f"[{y[0]:.2f}, {y[-1]:.2f}]"
-            )
-            z_message = (
-                f"{z:.2f}"
-                if (isinstance(z, int) or isinstance(z, float))
-                else f"[{z[0]:.2f}, {z[-1]:.2f}]"
-            )
-            print(f"t={t_message}, x={x_message}, y={y_message}, z={z_message}")
-            print(f"{horizontal_axis=}, {vertical_axis=}")
-        return ax.imshow(z_for_plotting, extent=limits, **kwargs)
