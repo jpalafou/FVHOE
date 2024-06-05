@@ -120,10 +120,10 @@ def hydro_dt(w: NamedNumpyArray, h: float, CFL: float, gamma: float) -> float:
         out (float) : time-step size
     """
     c = compute_sound_speed(w, gamma)
-    c_x = np.abs(w.vx) + c
-    c_y = np.abs(w.vy) + c
-    c_z = np.abs(w.vz) + c
-    out = CFL * h / np.max(c_x + c_y + c_z).item()
+    vxa = np.abs(w.vx)
+    vya = np.abs(w.vy)
+    vza = np.abs(w.vz)
+    out = CFL * h / np.max(np.maximum(np.maximum(vxa, vya), vza) + c).item()
     if out < 0:
         raise BaseException("Negative dt encountered.")
     return out

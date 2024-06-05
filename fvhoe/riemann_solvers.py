@@ -152,3 +152,77 @@ def hllc(
     out = np.where(0 >= Sr, Fr, out)
 
     return out
+
+
+def hllc2(
+    wl: NamedNumpyArray, wr: NamedNumpyArray, gamma: float, dim: str
+) -> NamedNumpyArray:
+    """
+    hllc numerical fluxes (Romain variation)
+    args:
+        wl (NamedArray) : primitive variables to the left of interface
+        wr (NamedArray) : primitive variables to the right of interface
+        gamma (float) : specific heat ratio
+        dir (str) : "x", "y", "z"
+    returns:
+        out (array_like) : hllc fluxes for conservative variables
+    """
+    # compute conservative variables
+    ul = compute_conservatives(wl, gamma)
+    ur = compute_conservatives(wr, gamma)
+
+    # sound speed
+    cl = compute_sound_speed(wl, gamma)
+    cr = compute_sound_speed(wr, gamma)
+
+    # left state
+    dl = wl.rho
+    vl = getattr(wl, "v" + dim)
+    pl = wl.P
+    el = ul.E
+    # right state
+    dr = wr.rho
+    vr = getattr(wr, "v" + dim)
+    pr = wr.P
+    er = ur.E
+    # sound speed
+    cl = np.sqrt(gamma * pl / dl)
+    cr = np.sqrt(gamma * pr / dr)
+    # waves speed
+    sl = np.minimum(vl, vr) - np.maximum(cl, cr)
+    sr = np.maximum(vl, vr) + np.maximum(cl, cr)
+    dcl = dl * (vl - sl)
+    dcr = dr * (sr - vr)
+    # star state velocity and pressure
+    vstar = (dcl * vl + dcr * vr + pl - pr) / (dcl + dcr)
+    pstar = (dcl * pr + dcr * pl + dcl * dcr * (vl - vr)) / (dcl + dcr)
+    # left and right star states
+    dstarl = dl * (sl - vl) / (sl - vstar)
+    dstarr = dr * (sr - vr) / (sr - vstar)
+    estarl = ((sl - vl) * el - pl * vl + pstar * vstar) / (sl - vstar)
+    estarr = ((sr - vr) * er - pr * vr + pstar * vstar) / (sr - vstar)
+    # sample godunov state
+    dg = np.where(sl > 0, dl, np.where(vstar > 0, dstarl, np.where(sr > 0, dstarr, dr)))
+    vg = np.where(sl > 0, vl, np.where(vstar > 0, vstar, np.where(sr > 0, vstar, vr)))
+    pg = np.where(sl > 0, pl, np.where(vstar > 0, pstar, np.where(sr > 0, pstar, pr)))
+    eg = np.where(sl > 0, el, np.where(vstar > 0, estarl, np.where(sr > 0, estarr, er)))
+    # compute godunov flux
+    out = ul.copy()
+    out.rho[...] = dg * vg
+    out.mx[...] = (
+        dg * vg * vg + pg
+        if dim == "x"
+        else dg * vg * np.where(vg > 0, wl.vx, np.where(vg < 0, wr.vx, 0))
+    )
+    out.my[...] = (
+        dg * vg * vg + pg
+        if dim == "y"
+        else dg * vg * np.where(vg > 0, wl.vy, np.where(vg < 0, wr.vy, 0))
+    )
+    out.mz[...] = (
+        dg * vg * vg + pg
+        if dim == "z"
+        else dg * vg * np.where(vg > 0, wl.vz, np.where(vg < 0, wr.vz, 0))
+    )
+    out.E[...] = (eg + pg) * vg
+    return out

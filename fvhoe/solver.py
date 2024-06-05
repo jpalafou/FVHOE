@@ -11,7 +11,7 @@ from fvhoe.fv import (
 from fvhoe.hydro import compute_conservatives, compute_primitives, hydro_dt
 from fvhoe.named_array import NamedCupyArray, NamedNumpyArray
 from fvhoe.ode import ODE
-from fvhoe.riemann_solvers import advection_upwind, hllc, llf
+from fvhoe.riemann_solvers import advection_upwind, hllc, hllc2, llf
 from fvhoe.slope_limiting import (
     broadcase_troubled_cells_to_troubled_interfaces,
     detect_troubled_cells,
@@ -116,6 +116,8 @@ class EulerSolver(ODE):
                 self.riemann_solver = llf
             case "hllc":
                 self.riemann_solver = hllc
+            case "hllc2":
+                self.riemann_solver = hllc2
             case _:
                 raise TypeError(f"Invalid Riemann solver {riemann_solver}")
 
