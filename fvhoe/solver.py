@@ -1,6 +1,6 @@
 import numpy as np
 from fvhoe.boundary_conditions import BoundaryCondition
-from fvhoe.config import conservative_names
+from fvhoe.config import conservative_names, primitive_names
 from fvhoe.fv import (
     fv_average,
     conservative_interpolation,
@@ -43,6 +43,7 @@ class EulerSolver(ODE):
         fixed_primitive_variables: Iterable = None,
         a_posteriori_slope_limiting: bool = False,
         slope_limiter: str = "minmod",
+        PAD: dict = None,
         progress_bar: bool = True,
         dumpall: bool = False,
         cupy: bool = False,
@@ -165,6 +166,18 @@ class EulerSolver(ODE):
         # slope limiting
         self.a_posteriori_slope_limiting = a_posteriori_slope_limiting
         self.slope_limiter = slope_limiter
+        self.PAD = PAD if isinstance(PAD, dict) else {}
+        defaults_limits = {
+            "rho": (0.0, np.inf),
+            "P": (0.0, np.inf),
+            "vx": (-np.inf, np.inf),
+            "vy": (-np.inf, np.inf),
+            "vz": (-np.inf, np.inf),
+        }
+        for var in primitive_names:
+            if var not in self.PAD.keys():
+                self.PAD[var] = defaults_limits[var]
+        self.trouble = np.zeros_like(u0_fv[0], dtype=bool)
 
         # plotting functions
         self.plot_1d_slice = lambda *args, **kwargs: plot_1d_slice(
@@ -354,16 +367,27 @@ class EulerSolver(ODE):
         """
         # compute candidate solution
         ustar = u + dt * self.euler_equation(F=F, G=G, H=H)
-        ustar_bc = self.bc.apply(ustar, gw=(1, 1, 1))
-        u_bc = self.bc.apply(u, gw=(1, 1, 1))
+
+        # interpolate finite volume primitives from finite volume conservatives
+        gws = (
+            2 * int(np.ceil(self.p[0] / 2)) + 1,
+            2 * int(np.ceil(self.p[1] / 2)) + 1,
+            2 * int(np.ceil(self.p[2] / 2)) + 1,
+        )
+        w = self.interpolate_fvprimitives_from_fvconservatives(u, p=self.p, gw=gws)
+        w_star = self.interpolate_fvprimitives_from_fvconservatives(
+            ustar, p=self.p, gw=gws
+        )
 
         # detect troubled cells
         troubled_cells = detect_troubled_cells(
-            u=u_bc,
-            u_candidate=ustar_bc,
+            u=w,
+            u_candidate=w_star,
             eps=1e-5,
+            PAD=self.PAD,
             xp={True: "cupy", False: "numpy"}[self.cupy],
         )
+        self.trouble = troubled_cells[0]
 
         if not np.any(troubled_cells):
             # great, no troubled cells!
@@ -459,6 +483,8 @@ class EulerSolver(ODE):
             "t": self.t,
             "fv": fv_data if self.dumpall else w,
         }
+        if self.a_posteriori_slope_limiting:
+            log["trouble"] = self.trouble
         self.snapshots.append(log)
         self.snapshot_times.append(self.t)
 

@@ -1,5 +1,6 @@
 from functools import partial
 from fvhoe.fv import get_view
+from fvhoe.named_array import NamedNumpyArray
 import numpy as np
 from scipy.ndimage import maximum_filter, minimum_filter
 from typing import Tuple
@@ -78,13 +79,18 @@ def moncen(du_left: np.ndarray, du_right: np.ndarray) -> np.ndarray:
 
 
 def detect_troubled_cells(
-    u: np.ndarray, u_candidate: np.ndarray, eps: float = 1e-5, xp: str = "numpy"
+    u: NamedNumpyArray,
+    u_candidate: NamedNumpyArray,
+    eps: float = 1e-5,
+    PAD: dict = None,
+    xp: str = "numpy",
 ) -> np.ndarray:
     """
     args:
-        u (array_like) : array of values with shape (# variables, nx, ny, nz). if u is a NamedArray, the output will still be a numpy-like array
-        u_candidate (array_like) : array of candidate values with shape (# variables, nx, ny, nz)
+        u (NamedArray) : array of values with shape (# variables, nx, ny, nz). if u is a NamedArray, the output will still be a numpy-like array
+        u_candidate (NameArray) : array of candidate values with shape (# variables, nx, ny, nz)
         eps (float) : tolerance for NAD
+        PAD (dict) : dictionary of PAD parameters with keys given by the variables in u
         xp (str) : 'numpy' or 'cupy'
     returns:
         trouble (array_like) : array of troubled cells indicated by 1, shape (nx - 2, ny - 2, nz - 2)
@@ -115,8 +121,20 @@ def detect_troubled_cells(
     lower_differences = u_candidate_inner - m
     NAD_trouble = np.where(lower_differences < -tolerance, 1, 0)
     NAD_trouble = np.where(upper_differences > tolerance, 1, NAD_trouble)
+    NAD_trouble = np.any(NAD_trouble, axis=0, keepdims=True)
 
-    trouble = np.max(NAD_trouble, axis=0, keepdims=True)
+    # PAD
+    PAD_trouble = np.zeros_like(NAD_trouble, dtype=bool)
+    if PAD is not None:
+        for var in u_candidate_inner.variable_names:
+            PAD_trouble = np.where(
+                getattr(u_candidate_inner, var) < PAD[var][0], 1, PAD_trouble
+            )
+            PAD_trouble = np.where(
+                getattr(u_candidate_inner, var) > PAD[var][1], 1, PAD_trouble
+            )
+
+    trouble = np.where(PAD_trouble, 1, NAD_trouble)
 
     return trouble
 
