@@ -61,8 +61,8 @@ def llf(
     Fr = compute_fluxes(u=ur, w=wr, gamma=gamma, dim=dim)
 
     # get sound speeds
-    sl = getattr(wl, "v" + dim) + compute_sound_speed(wl, gamma)
-    sr = getattr(wr, "v" + dim) + compute_sound_speed(wr, gamma)
+    sl = np.abs(getattr(wl, "v" + dim)) + compute_sound_speed(wl, gamma)
+    sr = np.abs(getattr(wr, "v" + dim)) + compute_sound_speed(wr, gamma)
     smax = np.maximum(sl, sr)
 
     # llf
