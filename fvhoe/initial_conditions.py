@@ -132,18 +132,15 @@ def slotted_disk(
     return out
 
 
-def shock_tube(
+def shock_tube_1d(
     x: np.ndarray,
     y: np.ndarray = None,
     z: np.ndarray = None,
     dim: str = "x",
     shock_position: float = 0.5,
-    rho1_rho2: Tuple[float, float] = (1, 0.125),
-    v1_v2: Tuple[float, float] = (
-        0.0,
-        0,
-    ),
-    P1_P2: Tuple[float, float] = (1, 0.1),
+    rho_left_right: Tuple[float, float] = (1, 0.125),
+    v_left_right: Tuple[float, float] = (0, 0),
+    P_left_right: Tuple[float, float] = (1, 0.1),
 ) -> NamedNumpyArray:
     """
     1D shock tube initial conditions (default is Sod's problem)
@@ -153,35 +150,37 @@ def shock_tube(
         z (array_like) : 3D mesh of z-points, shape (nx, ny, nz)
         dim (str) : "x", "y", "z"
         shock_position (float) : position of the shock
-        rho1_rho2 (Tuple[float, float]) : left density, right density
-        v1_v2 (Tuple[float, float]) : left velocity, right velocity
-        P1_P2 (Tuple[float, float]) : left pressure, right pressure
+        rho_left_right (Tuple[float, float]) : density on left and right of shock
+        v_left_right (Tuple[float, float]) : velocity on left and right of shock
+        P_left_right (Tuple[float, float]) : pressure on left and right of shock
     returns:
         out (NamedNumpyArray) : has variable names ["rho", "vx", "vy", "vz", "P"]
     """
+    if dim not in ["x", "y", "z"]:
+        raise ValueError("dim must be 'x', 'y', or 'z'")
     axis = {"x": x, "y": y, "z": z}[dim]
     out = NamedNumpyArray(np.asarray([np.empty_like(x)] * 5), primitive_names)
-    out.rho = np.where(axis < shock_position, rho1_rho2[0], rho1_rho2[1])
-    v = np.where(axis < shock_position, v1_v2[0], v1_v2[1])
+    out.rho = np.where(axis < shock_position, rho_left_right[0], rho_left_right[1])
+    v = np.where(axis < shock_position, v_left_right[0], v_left_right[1])
     out.vx[...] = v if dim == "x" else 0
-    out.vy[...] = v if dim == "x" else 0
-    out.vz[...] = v if dim == "x" else 0
-    out.P = np.where(axis < shock_position, P1_P2[0], P1_P2[1])
+    out.vy[...] = v if dim == "y" else 0
+    out.vz[...] = v if dim == "z" else 0
+    out.P = np.where(axis < shock_position, P_left_right[0], P_left_right[1])
     return out
 
 
-def sedov_blast(
+def shock_tube_2d(
     x: np.ndarray,
     y: np.ndarray = None,
     z: np.ndarray = None,
     dims: str = "xy",
     center: Tuple[float, float, float] = (0.5, 0.5, 0.5),
     radius: float = 0.1,
-    rho0: float = 1,
-    Pmin_Pmax: Tuple[float, float] = (1, 1e-3),
+    rho_in_out: Tuple[float, float] = (1, 1),
+    P_in_out: Tuple[float, float] = (1, 0.2),
 ) -> NamedNumpyArray:
     """
-    Sedov blast wave initial conditions
+    cross section of 2D shock tube initial conditions
     args:
         x (array_like) : 3D mesh of x-points, shape (nx, ny, nz)
         y (array_like) : 3D mesh of y-points, shape (nx, ny, nz)
@@ -189,11 +188,15 @@ def sedov_blast(
         dims (str) : contains "x", "y", and/or "z"
         center (Tuple[float, float, float]) : center of the blast
         radius (float) : radius of the blast
-        rho0 (float) : ambient density
-        Pmin_Pmax (Tuple[float, float]) : min pressure, max pressure
+        rho_in_out (Tuple[float, float]) : density inside and outside the blast
+        P_in_out (Tuple[float, float]) : pressure inside and outside the blast
     returns:
         out (NamedNumpyArray) : has variable names ["rho", "vx", "vy", "vz", "P"]
     """
+    if len(dims) != 2:
+        raise ValueError("dims must contain exactly 2 dimensions")
+    if dims[0] not in ["x", "y", "z"] or dims[1] not in ["x", "y", "z"]:
+        raise ValueError("dims must be 'xy', 'xz', or 'yz'")
     out = NamedNumpyArray(np.asarray([np.empty_like(x)] * 5), primitive_names)
     xc, yc, zc = x - center[0], y - center[1], z - center[2]
     rsq = np.zeros_like(xc)
@@ -201,9 +204,9 @@ def sedov_blast(
     rsq += np.square(yc) if "y" in dims else 0
     rsq += np.square(zc) if "z" in dims else 0
     inside_blast = rsq < radius**2
-    out.rho[...] = rho0
+    out.rho[...] = np.where(inside_blast, rho_in_out[0], rho_in_out[1])
     out.vx[...] = 0
     out.vy[...] = 0
     out.vz[...] = 0
-    out.P = np.where(inside_blast, Pmin_Pmax[1], Pmin_Pmax[0])
+    out.P = np.where(inside_blast, P_in_out[0], P_in_out[1])
     return out
