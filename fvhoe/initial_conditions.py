@@ -169,6 +169,41 @@ def shock_tube_1d(
     return out
 
 
+def double_shock_1d(
+    x: np.ndarray,
+    y: np.ndarray = None,
+    z: np.ndarray = None,
+    dim: str = "x",
+    shock_positions: Tuple[float, float] = (0.1, 0.9),
+    rhos: Tuple[float, float, float] = (1, 1, 1),
+    vs: Tuple[float, float, float] = (0, 0, 0),
+    Ps: Tuple[float, float, float] = (10**3, 10**-2, 10**2),
+):
+    if dim not in ["x", "y", "z"]:
+        raise ValueError("dim must be 'x', 'y', or 'z'")
+    axis = {"x": x, "y": y, "z": z}[dim]
+    out = NamedNumpyArray(np.asarray([np.empty_like(x)] * 5), primitive_names)
+    out.rho = np.where(
+        axis < shock_positions[0],
+        rhos[0],
+        np.where(axis < shock_positions[1], rhos[1], rhos[2]),
+    )
+    v = np.where(
+        axis < shock_positions[0],
+        vs[0],
+        np.where(axis < shock_positions[1], vs[1], vs[2]),
+    )
+    out.vx[...] = v if dim == "x" else 0
+    out.vy[...] = v if dim == "y" else 0
+    out.vz[...] = v if dim == "z" else 0
+    out.P = np.where(
+        axis < shock_positions[0],
+        Ps[0],
+        np.where(axis < shock_positions[1], Ps[1], Ps[2]),
+    )
+    return out
+
+
 def shock_tube_2d(
     x: np.ndarray,
     y: np.ndarray = None,

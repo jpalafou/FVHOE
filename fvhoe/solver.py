@@ -44,6 +44,8 @@ class EulerSolver(ODE):
         a_posteriori_slope_limiting: bool = False,
         slope_limiter: str = "minmod",
         PAD: dict = None,
+        density_floor: bool = False,
+        pressure_floor: bool = False,
         progress_bar: bool = True,
         dumpall: bool = False,
         cupy: bool = False,
@@ -80,6 +82,9 @@ class EulerSolver(ODE):
             fixed_primitive_variables (Iterable) : series of primitive variables to keep fixed to their initial value
             a_posteriori_slope_limiting (bool) : whether to apply a postreiori slope limiting
             slope_limiter (str) : slope limiter code, "minmod", "moncen", None
+            PAD (dict) : primitive variable limits for slope limiting
+            density_floor (bool) : whether to apply a density floor
+            pressure_floor (bool) : whether to apply a pressure floor
             progress_bar (bool) : whether to print out a progress bar
             dumpall (bool) : save all variables in snapshot
             cupy (bool) : whether to use GPUs via the cupy library
@@ -132,7 +137,7 @@ class EulerSolver(ODE):
         self.bc = BoundaryCondition(
             names=conservative_names,
             x=bc.x,
-            y=bc.x,
+            y=bc.y,
             z=bc.z,
             x_value=bc.x_value,
             y_value=bc.y_value,
@@ -177,6 +182,8 @@ class EulerSolver(ODE):
         for var in primitive_names:
             if var not in self.PAD.keys():
                 self.PAD[var] = defaults_limits[var]
+        self.density_floor = density_floor
+        self.pressure_floor = pressure_floor
         self.trouble = np.zeros_like(u0_fv[0], dtype=bool)
 
         # plotting functions
@@ -248,11 +255,22 @@ class EulerSolver(ODE):
             ),
         )
 
-        # compute sound speed
-        if np.min(w_bc.rho) < 0:
+        # check solution for invalid values
+        if self.density_floor:
+            w_bc.rho = np.maximum(w_bc.rho, 1e-16)
+        elif np.min(w_bc.rho) < 0:
             raise BaseException("Negative density encountered.")
-        if np.min(w_bc.P) < 0:
+
+        if self.pressure_floor:
+            w_bc.P = np.maximum(w_bc.P, 1e-16)
+        elif np.min(w_bc.P) < 0:
             raise BaseException("Negative pressure encountered.")
+
+        if np.any(np.isnan(w_bc.rho)):
+            raise BaseException("NaNs encountered in density.")
+
+        if np.any(np.isnan(w_bc.P)):
+            raise BaseException("NaNs encountered in pressure.")
 
         # and time-step size
         if self.fixed_dt is None:

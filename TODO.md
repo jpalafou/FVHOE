@@ -6,8 +6,8 @@ sd comparison
             slotted disk
     Euler equations
         1D
-            sod shock tube
-            Woodward and Colella interacting blast waves test
+            sod shock tube (Done)
+            Woodward and Colella interacting blast waves test (Done)
             Shu and Osher shock tube test
         2D
             Non-linear sound wave test

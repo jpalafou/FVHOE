@@ -189,14 +189,14 @@ def set_reflective_bc(
     pad_width = [(0, 0), (0, 0), (0, 0)]
     if pos == "l":
         u[...] = u[gv(step=-1)]
-        set_reflective_bc(u=u, num_ghost=num_ghost, dim=dim, pos="r")
+        set_reflective_bc(u=u, num_ghost=num_ghost, dim=dim, pos="r", negative=negative)
         u[...] = u[gv(step=-1)]
         return u
 
     pad_width[axis] = (0, num_ghost)
-    u[...] = np.pad(u[gv(cut=(0, num_ghost))], pad_width=pad_width, mode="reflect")
+    u[...] = np.pad(u[gv(cut=(0, num_ghost))], pad_width=pad_width, mode="symmetric")
     if negative:
-        u[gv(cut=(0, num_ghost))] = -1 * u[gv(cut=(0, num_ghost))]
+        u[gv(cut=(0, num_ghost))] *= -1
 
     return u
 
@@ -348,6 +348,11 @@ class BoundaryCondition:
         returns:
             out (array_like) : w with bcs applied, shape (5, nx + 2 * gwx, ...)
         """
+        if np.any(np.isnan(u)):
+            raise ValueError(
+                "Boundary conditions cannot be applied to arrays with NaNs."
+            )
+
         # apply temporary boundaries of 0
         out = np.pad(
             u,
@@ -451,5 +456,8 @@ class BoundaryCondition:
                     raise TypeError(f"Invalid boundary condition '{bc}'")
 
             setattr(out, var, ubc)
+
+        if np.any(np.isnan(out)):
+            raise ValueError("Boundary conditions not applied correctly.")
 
         return out
