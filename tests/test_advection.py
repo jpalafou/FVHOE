@@ -47,12 +47,12 @@ def test_1d_advection_symmetry(f0: callable, p: int, N: int = 64, t: float = 1):
         solutions[dim] = solver
 
     xyerr = l2err(
-        solutions["x"].snapshots[-1]["fv"].rho[:, 0, 0],
-        solutions["y"].snapshots[-1]["fv"].rho[0, :, 0],
+        solutions["x"].snapshots[-1]["w"].rho[:, 0, 0],
+        solutions["y"].snapshots[-1]["w"].rho[0, :, 0],
     )
     yzerr = l2err(
-        solutions["y"].snapshots[-1]["fv"].rho[0, :, 0],
-        solutions["z"].snapshots[-1]["fv"].rho[0, 0, :],
+        solutions["y"].snapshots[-1]["w"].rho[0, :, 0],
+        solutions["z"].snapshots[-1]["w"].rho[0, 0, :],
     )
 
     assert xyerr == 0
@@ -99,12 +99,12 @@ def test_2d_advection_symmetry(p, N=32, t: float = 1):
         solutions[dims] = solver
 
     xy_yz_err = l2err(
-        solutions["xy"].snapshots[-1]["fv"].rho[:, :, 0],
-        solutions["yz"].snapshots[-1]["fv"].rho[0, :, :],
+        solutions["xy"].snapshots[-1]["w"].rho[:, :, 0],
+        solutions["yz"].snapshots[-1]["w"].rho[0, :, :],
     )
     yz_zx_err = l2err(
-        solutions["yz"].snapshots[-1]["fv"].rho[0, :, :],
-        solutions["zx"].snapshots[-1]["fv"].rho[:, 0, :],
+        solutions["yz"].snapshots[-1]["w"].rho[0, :, :],
+        solutions["zx"].snapshots[-1]["w"].rho[:, 0, :],
     )
 
     assert xy_yz_err == 0

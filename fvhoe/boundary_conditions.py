@@ -461,3 +461,59 @@ class BoundaryCondition:
             raise ValueError("Boundary conditions not applied correctly.")
 
         return out
+
+    def _json_dict(self):
+        """
+        returns a json dictionary of the boundary conditions
+        """
+        if hasattr(self, "json_dict"):
+            return self.json_dict
+        x_value = self.x_value
+        x_value = (
+            {
+                k: v.__name__ + "_func" if callable(v) else v
+                for k, v in x_value[0].items()
+            },
+            {
+                k: v.__name__ + "_func" if callable(v) else v
+                for k, v in x_value[1].items()
+            },
+        )
+        y_value = self.y_value
+        y_value = (
+            {
+                k: v.__name__ + "_func" if callable(v) else v
+                for k, v in y_value[0].items()
+            },
+            {
+                k: v.__name__ + "_func" if callable(v) else v
+                for k, v in y_value[1].items()
+            },
+        )
+        z_value = self.z_value
+        z_value = (
+            {
+                k: v.__name__ + "_func" if callable(v) else v
+                for k, v in z_value[0].items()
+            },
+            {
+                k: v.__name__ + "_func" if callable(v) else v
+                for k, v in z_value[1].items()
+            },
+        )
+        json_dict = {
+            "names": self.names,
+            "x": self.x,
+            "y": self.y,
+            "z": self.z,
+            "x_value": x_value,
+            "y_value": y_value,
+            "z_value": z_value,
+            "x_domain": self.x_domain,
+            "y_domain": self.y_domain,
+            "z_domain": self.z_domain,
+            "h": self.h,
+            "p": self.p,
+        }
+        self._json_dict = json_dict
+        return json_dict

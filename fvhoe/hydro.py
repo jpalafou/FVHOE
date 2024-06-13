@@ -36,15 +36,20 @@ def compute_conservatives(w: NamedNumpyArray, gamma: float) -> NamedNumpyArray:
     return u
 
 
-def compute_sound_speed(w: NamedNumpyArray, gamma: float) -> np.ndarray:
+def compute_sound_speed(
+    w: NamedNumpyArray, gamma: float, rho_P_floor: bool = False
+) -> np.ndarray:
     """
     args:
         w (NamedArray) : has variables names ["rho", "P"]
         gamma (float) : specific heat ratio
+        rho_P_floor (bool) : whether to floor rho and P to 1e-16
     returns:
         out (array_like) : sound speeds
     """
-    out = np.sqrt(gamma * w.P / w.rho)
+    P = np.maximum(w.P, 1e-16) if rho_P_floor else w.P
+    rho = np.maximum(w.rho, 1e-16) if rho_P_floor else w.rho
+    out = np.sqrt(gamma * P / rho)
     return out
 
 
@@ -108,7 +113,13 @@ def advection_dt(
     return out
 
 
-def hydro_dt(w: NamedNumpyArray, h: float, CFL: float, gamma: float) -> float:
+def hydro_dt(
+    w: NamedNumpyArray,
+    h: float,
+    CFL: float,
+    gamma: float,
+    rho_P_sound_speed_floor: bool = False,
+) -> float:
     """
     compute suitable time-step size for Euler equations
     args:
@@ -116,10 +127,11 @@ def hydro_dt(w: NamedNumpyArray, h: float, CFL: float, gamma: float) -> float:
         h (float) : mesh spacing
         CFL (float) : Courant-Friedrichs-Lewy condition
         gamma (float) : specific heat ratio
+        rho_P_sound_speed_floor (bool) : whether to apply a floor to density and pressure when computing sound speed
     returns:
         out (float) : time-step size
     """
-    c = compute_sound_speed(w, gamma)
+    c = compute_sound_speed(w, gamma, rho_P_floor=rho_P_sound_speed_floor)
     vxa = np.abs(w.vx)
     vya = np.abs(w.vy)
     vza = np.abs(w.vz)

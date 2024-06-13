@@ -11,13 +11,16 @@ from fvhoe.fv import (
 from fvhoe.hydro import compute_conservatives, compute_primitives, hydro_dt
 from fvhoe.named_array import NamedCupyArray, NamedNumpyArray
 from fvhoe.ode import ODE
-from fvhoe.riemann_solvers import advection_upwind, hllc, hllc2, llf
+from fvhoe.riemann_solvers import advection_upwind, hllc, hllc2, hllc3, llf
 from fvhoe.slope_limiting import (
     broadcase_troubled_cells_to_troubled_interfaces,
     detect_troubled_cells,
     MUSCL_interpolations,
 )
 from fvhoe.visualization import plot_1d_slice, plot_2d_slice
+import json
+import os
+import pickle
 from typing import Iterable, Tuple
 
 
@@ -46,8 +49,11 @@ class EulerSolver(ODE):
         PAD: dict = None,
         density_floor: bool = False,
         pressure_floor: bool = False,
+        rho_P_sound_speed_floor: bool = False,
         progress_bar: bool = True,
+        snapshot_dir: str = "snapshots",
         dumpall: bool = False,
+        snapshots_as_fv_averages: bool = True,
         cupy: bool = False,
     ):
         """
@@ -77,16 +83,23 @@ class EulerSolver(ODE):
                 None : apply periodic boundaries
             riemann_solver (str) : riemann solver code
                 "advection_upwinding" : for pure advection problem
-                "HLLC" : advanced riemann solver for Euler equations
+                "llf" : simple riemann solver for Euler equations
+                "hllc" : advanced riemann solver for Euler equations
+                "hllc2" : Romain's variation
+                "hllc3" : David's variation
             conservative_ic (bool) : indicates that w0 returns conservative variables if true
+            snapshots_as_fv_averages (bool) : save snapshots as finite volume averages
             fixed_primitive_variables (Iterable) : series of primitive variables to keep fixed to their initial value
             a_posteriori_slope_limiting (bool) : whether to apply a postreiori slope limiting
             slope_limiter (str) : slope limiter code, "minmod", "moncen", None
             PAD (dict) : primitive variable limits for slope limiting
             density_floor (bool) : whether to apply a density floor
             pressure_floor (bool) : whether to apply a pressure floor
+            rho_P_sound_speed_floor (bool) : whether to apply a pressure and density floor in the sound speed function
             progress_bar (bool) : whether to print out a progress bar
+            snapshot_dir (str) : directory to save snapshots
             dumpall (bool) : save all variables in snapshot
+            snapshots_as_fv_averages (bool) : save snapshots as finite volume averages. if false, save as cell centers
             cupy (bool) : whether to use GPUs via the cupy library
         returns:
             EulerSolver object
@@ -125,10 +138,15 @@ class EulerSolver(ODE):
                 self.riemann_solver = hllc
             case "hllc2":
                 self.riemann_solver = hllc2
+            case "hllc3":
+                self.riemann_solver = hllc3
             case _:
                 raise TypeError(f"Invalid Riemann solver {riemann_solver}")
 
-        # GPU
+        # data management
+        self.snapshot_dir = snapshot_dir
+        self.dumpall = dumpall
+        self.snapshots_as_fv_averages = snapshots_as_fv_averages
         self.cupy = cupy
         self.NamedArray = NamedCupyArray if cupy else NamedNumpyArray
 
@@ -150,6 +168,7 @@ class EulerSolver(ODE):
         )
 
         # integrator
+        self.w0 = w0
         if conservative_ic:
             u0 = w0
         else:
@@ -160,7 +179,6 @@ class EulerSolver(ODE):
         u0_fv = fv_average(f=u0, x=self.X, y=self.Y, z=self.Z, h=self.h, p=self.p)
         u0_fv = self.NamedArray(u0_fv, u0_fv.variable_names)
         super().__init__(u0_fv, progress_bar=progress_bar)
-        self.dumpall = dumpall
 
         # fixed velocity
         self.fixed_primitive_variables = fixed_primitive_variables
@@ -184,6 +202,7 @@ class EulerSolver(ODE):
                 self.PAD[var] = defaults_limits[var]
         self.density_floor = density_floor
         self.pressure_floor = pressure_floor
+        self.rho_P_sound_speed_floor = rho_P_sound_speed_floor
         self.trouble = np.zeros_like(u0_fv[0], dtype=bool)
 
         # plotting functions
@@ -245,7 +264,7 @@ class EulerSolver(ODE):
         gw = max(int(np.ceil(pmax / 2)) + 1, 2 * int(np.ceil(pmax / 2)))
 
         # fv conservatives to fv primitives
-        w_bc = self.interpolate_fvprimitives_from_fvconservatives(
+        w_bc = self.interpolate_primitives_from_conservatives(
             u=u,
             p=p,
             gw=(
@@ -274,7 +293,13 @@ class EulerSolver(ODE):
 
         # and time-step size
         if self.fixed_dt is None:
-            dt = hydro_dt(w=w_bc, h=min(self.h), CFL=self.CFL, gamma=self.gamma)
+            dt = hydro_dt(
+                w=w_bc,
+                h=min(self.h),
+                CFL=self.CFL,
+                gamma=self.gamma,
+                rho_P_sound_speed_floor=self.rho_P_sound_speed_floor,
+            )
         else:
             dt = self.fixed_dt
 
@@ -317,18 +342,21 @@ class EulerSolver(ODE):
             wr=w_x_face_center_l[:, 1:, ...],
             gamma=self.gamma,
             dim="x",
+            rho_P_sound_speed_floor=self.rho_P_sound_speed_floor,
         )
         g_face_center = self.riemann_solver(
             wl=w_y_face_center_r[:, :, :-1, ...],
             wr=w_y_face_center_l[:, :, 1:, ...],
             gamma=self.gamma,
             dim="y",
+            rho_P_sound_speed_floor=self.rho_P_sound_speed_floor,
         )
         h_face_center = self.riemann_solver(
             wl=w_z_face_center_r[:, :, :, :-1, ...],
             wr=w_z_face_center_l[:, :, :, 1:, ...],
             gamma=self.gamma,
             dim="z",
+            rho_P_sound_speed_floor=self.rho_P_sound_speed_floor,
         )
 
         # excess ghost zone counts after flux integral
@@ -392,10 +420,8 @@ class EulerSolver(ODE):
             2 * int(np.ceil(self.p[1] / 2)) + 1,
             2 * int(np.ceil(self.p[2] / 2)) + 1,
         )
-        w = self.interpolate_fvprimitives_from_fvconservatives(u, p=self.p, gw=gws)
-        w_star = self.interpolate_fvprimitives_from_fvconservatives(
-            ustar, p=self.p, gw=gws
-        )
+        w = self.interpolate_primitives_from_conservatives(u, p=self.p, gw=gws)
+        w_star = self.interpolate_primitives_from_conservatives(ustar, p=self.p, gw=gws)
 
         # detect troubled cells
         troubled_cells = detect_troubled_cells(
@@ -443,11 +469,12 @@ class EulerSolver(ODE):
         dudt += -(1 / self.h[2]) * (H[:, :, :, 1:, ...] - H[:, :, :, :-1, ...])
         return dudt
 
-    def interpolate_fvprimitives_from_fvconservatives(
+    def interpolate_primitives_from_conservatives(
         self,
         u: NamedNumpyArray,
         p: Tuple[int, int, int],
         gw: Tuple[int, int, int],
+        fv_average: bool = True,
     ) -> NamedNumpyArray:
         """
         interpolate finite volume primitives from finite volume conservatives
@@ -455,9 +482,9 @@ class EulerSolver(ODE):
             u (NamedArray) : finite volume conservative variables
             p (Tuple[int, int, int]) : interpolation polynomial degree in 3D (px, py, pz)
             gw (Tuple[int, int, int]) : number of 'ghost zones' on either side of the array u in each direction (gwx, gwy, gwz)
-            gamma (float) : specific heat ratio
+            fv_average (bool) : whether u is cell-averaged or centroids
         returns:
-            w (NamedArray) : finite volume primitive variables
+            w (NamedArray) : primitive variables as finite volume averages or centroids
         """
         u_bc = self.bc.apply(u, gw=gw)
         u_cell_centers = interpolate_cell_centers(u_bc, p=p)
@@ -471,7 +498,10 @@ class EulerSolver(ODE):
                 self.w0_cell_centers_cache[gw] = w0_cell_centers
             for var in self.fixed_primitive_variables:
                 setattr(w_cell_centers, var, getattr(w0_cell_centers, var))
-        w = interpolate_fv_averages(w_cell_centers, p=p)
+        if fv_average:
+            w = interpolate_fv_averages(w_cell_centers, p=p)
+        else:
+            w = w_cell_centers
         return w
 
     def snapshot(self):
@@ -479,32 +509,119 @@ class EulerSolver(ODE):
         log a dictionary
         """
         # fv conservatives to fv primitives
-        w = self.interpolate_fvprimitives_from_fvconservatives(
+        w = self.interpolate_primitives_from_conservatives(
             u=self.u,
             p=self.p,
             gw=(
-                2 * int(np.ceil(self.p[0] / 2)),
-                2 * int(np.ceil(self.p[1] / 2)),
-                2 * int(np.ceil(self.p[2] / 2)),
+                int(np.ceil(self.p[0] / 2)) * int(self.snapshots_as_fv_averages + 1),
+                int(np.ceil(self.p[1] / 2)) * int(self.snapshots_as_fv_averages + 1),
+                int(np.ceil(self.p[2] / 2)) * int(self.snapshots_as_fv_averages + 1),
             ),
+            fv_average=self.snapshots_as_fv_averages,
         )
 
         # convert to numpy
         if self.cupy:
             w = w.asnamednumpy()
 
+        # append conservative variables if dumpall
         if self.dumpall:
-            u = self.u.asnamednumpy() if self.cupy else self.u.copy()
-            fv_data = u.merge(w)
+            if self.snapshots_as_fv_averages:
+                u = self.u
+            else:
+                u_bc = self.bc.apply(
+                    self.u,
+                    gw=(
+                        int(np.ceil(self.p[0] / 2)),
+                        int(np.ceil(self.p[1] / 2)),
+                        int(np.ceil(self.p[1] / 2)),
+                    ),
+                )
+                u = interpolate_cell_centers(u_bc, p=self.p)
+            if self.cupy:
+                u = u.asnamednumpy()
+            w = w.merge(u)
 
         log = {
+            "x": self.x,
+            "y": self.y,
+            "z": self.z,
             "t": self.t,
-            "fv": fv_data if self.dumpall else w,
+            "w": w,
         }
         if self.a_posteriori_slope_limiting:
             log["trouble"] = self.trouble
         self.snapshots.append(log)
         self.snapshot_times.append(self.t)
+
+    def write_snapshots(self, overwrite: bool):
+        """
+        write snapshots to a file
+        args:
+            overwrite (bool) : overwrite the file if it exists
+        """
+        base_directory = self.snapshot_dir
+        if not os.path.exists(base_directory):
+            os.makedirs(base_directory)
+
+        if self.filename is None:
+            self.filename = "EulerSolver"
+        save_path = os.path.join(base_directory, self.filename)
+
+        # Handle case where filename is already taken
+        if not overwrite:
+            counter = 1
+            original_save_path = save_path
+            while os.path.exists(save_path):
+                save_path = f"{original_save_path}{counter}"
+                counter += 1
+
+        # Create the subdirectory
+        try:
+            os.makedirs(save_path)
+        except FileExistsError:
+            pass
+
+        # Save the snapshots
+        with open(os.path.join(save_path, "arrs.pkl"), "wb") as f:
+            pickle.dump(self.snapshots, f)
+
+        # Save the rest of the attributes (excluding functions, etc.) as a json
+        attrs_to_save = {}
+        for k, v in self.__dict__.items():
+            # save name of initial condition function
+            if k == "w0":
+                attrs_to_save[k] = getattr(v, "__name__", "__name__ not found")
+                continue
+            # skip functions, arrays, etc
+            if (
+                callable(v)
+                or isinstance(v, np.ndarray)
+                or isinstance(v, NamedNumpyArray)
+                or isinstance(v, NamedCupyArray)
+                or k
+                in ["NamedArray", "progress_bar", "snapshots", "w0_cell_centers_cache"]
+            ):
+                continue
+            # save boundary condition dict
+            if k == "bc":
+                # attrs_to_save[k] = v._json_dict()
+                continue
+            # rewrite np.inf as a string
+            if k == "PAD":
+                attrs_to_save[k] = {
+                    k: [{np.inf: "inf", -np.inf: "-inf"}.get(item, item) for item in v]
+                    for k, v in v.items()
+                }
+                continue
+            attrs_to_save[k] = v
+
+        print(attrs_to_save)
+
+        with open(os.path.join(save_path, "attrs.json"), "w") as f:
+            json.dump(attrs_to_save, f, indent=4)
+
+        print(f"Snapshots saved to {save_path}")
 
     def rkorder(self, *args, **kwargs):
         """

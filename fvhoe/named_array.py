@@ -10,7 +10,7 @@ except Exception:
     CUPY_AVAILABLE = False
 
 
-def defined_NamedArray_class(cupy: bool = False):
+def define_NamedArray_class(name: str, cupy: bool = False):
     """
     define NamedArray class using numpy or cupy
     args:
@@ -76,6 +76,35 @@ def defined_NamedArray_class(cupy: bool = False):
                 self[self.variable_indices[name], ...] = value
             else:
                 super().__setattr__(name, value)
+
+        def __reduce__(self):
+            """
+            helper function for pickling
+            """
+            # Get the parent's __reduce__ tuple
+            pickled_state = super(NamedArray, self).__reduce__()
+            # Create our own tuple to pass to __setstate__
+            additional_data = (
+                self.variable_indices,
+                self.variable_names,
+                self.variable_name_set,
+                self.xp,
+            )
+            new_state = pickled_state[2] + (additional_data,)
+            # Return a tuple that replaces the parent's __setstate__ tuple with our own
+            return (pickled_state[0], pickled_state[1], new_state)
+
+        def __setstate__(self, state):
+            """
+            helper function for unpickling
+            """
+            additional_data = state[-1]
+            self.variable_indices = additional_data[0]
+            self.variable_names = additional_data[1]
+            self.variable_name_set = additional_data[2]
+            self.xp = additional_data[3]
+            # Call the parent's __setstate__ with the other tuple elements.
+            super(NamedArray, self).__setstate__(state[:-1])
 
         def copy(self):
             return self.__class__(self, self.variable_names, copy=True)
@@ -145,11 +174,13 @@ def defined_NamedArray_class(cupy: bool = False):
 
             return out
 
+    NamedArray.__qualname__ = name
+
     return NamedArray
 
 
-NamedNumpyArray = defined_NamedArray_class(cupy=False)
-NamedCupyArray = defined_NamedArray_class(cupy=True)
+NamedNumpyArray = define_NamedArray_class(name="NamedNumpyArray", cupy=False)
+NamedCupyArray = define_NamedArray_class(name="NamedCupyArray", cupy=True)
 
 
 def asnamednumpy(self):

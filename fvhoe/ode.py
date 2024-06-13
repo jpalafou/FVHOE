@@ -31,6 +31,7 @@ class ODE(ABC):
         self.u = u0
         self.t = 0
         self.timestamps = [0]
+        self.step_count = 0
 
         # snapshots
         self.snapshots = []
@@ -86,13 +87,19 @@ class ODE(ABC):
         exact: bool = True,
         downbeats: Any = [],
         log_every_step: bool = False,
+        save_snapshots: bool = True,
+        filename: str = None,
+        overwrite: bool = False,
     ) -> None:
         """
         args:
             stopping_time (float) : time to simulate until
             exact (bool) : avoid overshooting the stopping time
-            downbeats (iterable[float]) : extra setting for exact -> keytimes to reach exactly
+            downbeats (iterable[float]) : keytimes to reach exactly when exact is True
             log_every_step (bool) : take a snapshot at every step
+            save_snapshots (bool) : save snapshots
+            filename (str) : name of the file to save snapshots
+            overwrite (bool) : overwrite the file if it exists
         """
         # initialize progress bar
         self.progress_bar_action(action="setup", stopping_time=stopping_time)
@@ -111,6 +118,7 @@ class ODE(ABC):
             dt, self.u = self.stepper(self.t, self.u, target_time=target_time)
             self.t += dt
             self.timestamps.append(self.t)
+            self.step_count += 1
             # update progress bar
             self.progress_bar_action(action="update")
             # target time actions
@@ -125,7 +133,19 @@ class ODE(ABC):
         # clean up progress bar
         self.progress_bar_action(action="cleanup")
 
+        if save_snapshots:
+            self.filename = filename
+            self.write_snapshots(overwrite)
+
+    def write_snapshots(self):
+        """
+        overwrite to save snapshots
+        """
+        pass
+
     def euler(self, stopping_time: float, **kwargs) -> None:
+        self.integrator = "euler"
+
         def stepper(t, u, target_time=None):
             dt, dudt = self.f(t, u)
             dt = _hit_target(t=t, dt=dt, target=target_time)
@@ -136,6 +156,8 @@ class ODE(ABC):
         self.integrate(stopping_time, **kwargs)
 
     def ssprk2(self, stopping_time: float, **kwargs) -> None:
+        self.integrator = "ssprk2"
+
         def stepper(t, u, target_time=None):
             dt, k0 = self.f(t, u)
             dt = _hit_target(t=t, dt=dt, target=target_time)
@@ -148,6 +170,8 @@ class ODE(ABC):
         self.integrate(stopping_time, **kwargs)
 
     def ssprk3(self, stopping_time: float, **kwargs) -> None:
+        self.integrator = "ssprk3"
+
         def stepper(t, u, target_time=None):
             dt, k0 = self.f(t, u)
             dt = _hit_target(t=t, dt=dt, target=target_time)
@@ -160,6 +184,8 @@ class ODE(ABC):
         self.integrate(stopping_time, **kwargs)
 
     def rk4(self, stopping_time: float, **kwargs) -> None:
+        self.integrator = "rk4"
+
         def stepper(t, u, target_time=None):
             dt, k0 = self.f(t, u)
             dt = _hit_target(t=t, dt=dt, target=target_time)
