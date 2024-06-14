@@ -573,7 +573,7 @@ class EulerSolver(ODE):
             counter = 1
             original_save_path = save_path
             while os.path.exists(save_path):
-                save_path = f"{original_save_path}{counter}"
+                save_path = f"{original_save_path}_{counter}"
                 counter += 1
 
         # Create the subdirectory
@@ -600,7 +600,13 @@ class EulerSolver(ODE):
                 or isinstance(v, NamedNumpyArray)
                 or isinstance(v, NamedCupyArray)
                 or k
-                in ["NamedArray", "progress_bar", "snapshots", "w0_cell_centers_cache"]
+                in [
+                    "NamedArray",
+                    "progress_bar",
+                    "snapshots",
+                    "w0_cell_centers_cache",
+                    "trouble",
+                ]
             ):
                 continue
             # save boundary condition dict
@@ -615,8 +621,6 @@ class EulerSolver(ODE):
                 }
                 continue
             attrs_to_save[k] = v
-
-        print(attrs_to_save)
 
         with open(os.path.join(save_path, "attrs.json"), "w") as f:
             json.dump(attrs_to_save, f, indent=4)
