@@ -1,5 +1,7 @@
 Neumann boundary conditions
 
+"ic" boundary condition
+
 sd comparison
     advection equation
         2D
@@ -13,7 +15,3 @@ sd comparison
             Non-linear sound wave test
             Kevin–Helmholtz instability
             Double Mach reflection
-
-fallback to first-order option
-
-save solutions and/or snapshots

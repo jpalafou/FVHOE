@@ -245,3 +245,32 @@ def shock_tube_2d(
     out.vz[...] = 0
     out.P = np.where(inside_blast, P_in_out[0], P_in_out[1])
     return out
+
+
+def shu_osher_1d(
+    x: np.ndarray, y: np.ndarray = None, z: np.ndarray = None, dims: str = "x"
+) -> NamedNumpyArray:
+    """
+    Shu Osher initial condition for advection on domain [0, 10]
+    args:
+        x (array_like) : 3D mesh of x-points, shape (nx, ny, nz)
+        y (array_like) : 3D mesh of y-points, shape (nx, ny, nz)
+        z (array_like) : 3D mesh of z-points, shape (nx, ny, nz)
+        dims (str) : contains "x", "y", or "z"
+    returns:
+        out (NamedNumpyArray) : has variable names ["rho", "vx", "vy", "vz", "P"]
+    """
+    if dims not in ["x", "y", "z"]:
+        raise ValueError("dims must be 'x', 'y', or 'z'")
+    xr = {"x": x, "y": y, "z": z}[dims] - 5
+
+    out = NamedNumpyArray(np.asarray([np.empty_like(x)] * 5), primitive_names)
+    out.rho = np.where(xr < -4, 3.857143, 1 + 0.2 * np.sin(5 * xr))
+
+    v = np.where(xr < -4, 2.629369, 0)
+    out.vx[...] = v if dims == "x" else 0
+    out.vy[...] = v if dims == "y" else 0
+    out.vz[...] = v if dims == "z" else 0
+    out.P[...] = np.where(xr < -4, 10.33333, 1)
+
+    return out
