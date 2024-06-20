@@ -1,4 +1,6 @@
 from abc import ABC, abstractmethod
+import numpy as np
+import time
 from tqdm import tqdm
 from typing import Any, Tuple
 
@@ -83,9 +85,10 @@ class ODE(ABC):
 
     def integrate(
         self,
-        stopping_time: float,
+        stopping_time: float = None,
+        n_timesteps: int = None,
         exact: bool = True,
-        downbeats: Any = [],
+        downbeats: Any = None,
         log_every_step: bool = False,
         save_snapshots: bool = True,
         filename: str = None,
@@ -93,42 +96,52 @@ class ODE(ABC):
     ) -> None:
         """
         args:
-            stopping_time (float) : time to simulate until
+            stopping_time (float) : time to simulate until. if None, n_timesteps is used and all other parameters are ignored
+            n_timesteps (int) : number of iterations to evolve if stopping_time is None. intended for small numbers of steps / debugging
             exact (bool) : avoid overshooting the stopping time
-            downbeats (iterable[float]) : keytimes to reach exactly when exact is True
+            downbeats (iterable[float]) : keytimes to reach exactly when exact is True. numpy.ndarray or list
             log_every_step (bool) : take a snapshot at every step
             save_snapshots (bool) : save snapshots
             filename (str) : name of the file to save snapshots
             overwrite (bool) : overwrite the file if it exists
         """
+        predetermined_step_count = stopping_time is None
+
+        # if given n_timesteps, perform a simple time evolution
+        if predetermined_step_count:
+            for _ in tqdm(range(n_timesteps)):
+                self.take_step()
+            return
+
         # initialize progress bar
         self.progress_bar_action(action="setup", stopping_time=stopping_time)
 
         # establish keytimes
-        if stopping_time not in downbeats:
-            downbeats.append(stopping_time)
-        downbeats.sort()
+        if downbeats is None:
+            downbeats = []
+        elif isinstance(downbeats, np.ndarray):
+            downbeats = downbeats.tolist()
+
+        downbeats = sorted(set([0] + downbeats + [stopping_time]))[
+            1:
+        ]  # get unique values and ignore 0
         target_time = downbeats.pop(0) if exact else None
 
         # initial snapshot
         self.snapshot()
 
         # simulation loop
+        clock_start = time.time()
         while self.t < stopping_time:
-            dt, self.u = self.stepper(self.t, self.u, target_time=target_time)
-            self.t += dt
-            self.timestamps.append(self.t)
-            self.step_count += 1
-            # update progress bar
+            self.take_step(target_time=target_time)
             self.progress_bar_action(action="update")
             # target time actions
-            if self.t == target_time or self.t >= stopping_time:
+            if self.t == target_time or self.t >= stopping_time or log_every_step:
                 self.snapshot()
-                # new target time
-                if self.t < stopping_time:
+                if downbeats and self.t == target_time:
                     target_time = downbeats.pop(0)
-            elif log_every_step:
-                self.snapshot()
+        clock_finish = time.time()
+        self.execution_time = clock_finish - clock_start
 
         # clean up progress bar
         self.progress_bar_action(action="cleanup")
@@ -137,13 +150,22 @@ class ODE(ABC):
             self.filename = filename
             self.write_snapshots(overwrite)
 
+    def take_step(self, target_time: float = None):
+        """
+        integrate helper function
+        """
+        dt, self.u = self.stepper(self.t, self.u, target_time=target_time)
+        self.t += dt
+        self.timestamps.append(self.t)
+        self.step_count += 1
+
     def write_snapshots(self):
         """
         overwrite to save snapshots
         """
         pass
 
-    def euler(self, stopping_time: float, **kwargs) -> None:
+    def euler(self, *args, **kwargs) -> None:
         self.integrator = "euler"
 
         def stepper(t, u, target_time=None):
@@ -153,9 +175,9 @@ class ODE(ABC):
             return dt, unext
 
         self.stepper = stepper
-        self.integrate(stopping_time, **kwargs)
+        self.integrate(*args, **kwargs)
 
-    def ssprk2(self, stopping_time: float, **kwargs) -> None:
+    def ssprk2(self, *args, **kwargs) -> None:
         self.integrator = "ssprk2"
 
         def stepper(t, u, target_time=None):
@@ -167,9 +189,9 @@ class ODE(ABC):
             return dt, unext
 
         self.stepper = stepper
-        self.integrate(stopping_time, **kwargs)
+        self.integrate(*args, **kwargs)
 
-    def ssprk3(self, stopping_time: float, **kwargs) -> None:
+    def ssprk3(self, *args, **kwargs) -> None:
         self.integrator = "ssprk3"
 
         def stepper(t, u, target_time=None):
@@ -181,9 +203,9 @@ class ODE(ABC):
             return dt, unext
 
         self.stepper = stepper
-        self.integrate(stopping_time, **kwargs)
+        self.integrate(*args, **kwargs)
 
-    def rk4(self, stopping_time: float, **kwargs) -> None:
+    def rk4(self, *args, **kwargs) -> None:
         self.integrator = "rk4"
 
         def stepper(t, u, target_time=None):
@@ -196,4 +218,4 @@ class ODE(ABC):
             return dt, unext
 
         self.stepper = stepper
-        self.integrate(stopping_time, **kwargs)
+        self.integrate(*args, **kwargs)

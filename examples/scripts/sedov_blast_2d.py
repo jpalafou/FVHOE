@@ -45,7 +45,7 @@ solver = EulerSolver(
     px=p,
     py=p,
     CFL=0.4,
-    riemann_solver="hllc3",
+    riemann_solver="hllc",
     bc=BoundaryCondition(x="free", y="free"),
     gamma=1.4,
     density_floor=False,

@@ -11,7 +11,7 @@ from fvhoe.fv import (
 from fvhoe.hydro import compute_conservatives, compute_primitives, hydro_dt
 from fvhoe.named_array import NamedCupyArray, NamedNumpyArray
 from fvhoe.ode import ODE
-from fvhoe.riemann_solvers import advection_upwind, hllc, hllc2, hllc3, llf
+from fvhoe.riemann_solvers import advection_upwind, hllc, llf
 from fvhoe.slope_limiting import (
     broadcase_troubled_cells_to_troubled_interfaces,
     detect_troubled_cells,
@@ -86,8 +86,6 @@ class EulerSolver(ODE):
                 "advection_upwinding" : for pure advection problem
                 "llf" : simple riemann solver for Euler equations
                 "hllc" : advanced riemann solver for Euler equations
-                "hllc2" : Romain's variation
-                "hllc3" : David's variation
             conservative_ic (bool) : indicates that w0 returns conservative variables if true
             fixed_primitive_variables (Iterable) : series of primitive variables to keep fixed to their initial value
             a_posteriori_slope_limiting (bool) : whether to apply a postreiori slope limiting
@@ -138,10 +136,6 @@ class EulerSolver(ODE):
                 self.riemann_solver = llf
             case "hllc":
                 self.riemann_solver = hllc
-            case "hllc2":
-                self.riemann_solver = hllc2
-            case "hllc3":
-                self.riemann_solver = hllc3
             case _:
                 raise TypeError(f"Invalid Riemann solver {riemann_solver}")
 

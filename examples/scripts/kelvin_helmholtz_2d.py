@@ -45,7 +45,7 @@ solver = EulerSolver(
     px=p,
     py=p,
     CFL=0.8,
-    riemann_solver="hllc3",
+    riemann_solver="hllc",
     bc=BoundaryCondition(x="periodic", y="periodic"),
     gamma=1.4,
     a_posteriori_slope_limiting=True,
@@ -57,10 +57,10 @@ solver = EulerSolver(
     snapshot_helper_function=snapshot_helper_function,
 )
 
-T = 0.8
+T = 0.1
 solver.rkorder(
     T,
-    downbeats=np.linspace(0, T, 17).tolist()[1:-1],
+    downbeats=np.linspace(0, T, 3).tolist(),
     filename=filename,
     overwrite=True,
 )

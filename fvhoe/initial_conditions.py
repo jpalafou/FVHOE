@@ -45,10 +45,10 @@ def sinus(
     )
 
     # assign other variables
-    out.P[...] = P
-    out.vx[...] = vx
-    out.vy[...] = vy
-    out.vz[...] = vz
+    out.P = P
+    out.vx = vx
+    out.vy = vy
+    out.vz = vz
     return out
 
 
@@ -89,10 +89,10 @@ def square(
     out.rho = np.where(inside_square, rho_min_max[1], rho_min_max[0])
 
     # assign other variables
-    out.P[...] = P
-    out.vx[...] = vx
-    out.vy[...] = vy
-    out.vz[...] = vz
+    out.P = P
+    out.vx = vx
+    out.vy = vy
+    out.vz = vz
     return out
 
 
@@ -123,12 +123,12 @@ def slotted_disk(
         rsq < 0.15**2, np.logical_not(np.logical_and(np.abs(xc) < 0.025, y < 0.85))
     )
     out.rho = np.where(inside_disk, rho_min_max[1], rho_min_max[0])
-    out.vx[...] = -yc
-    out.vy[...] = xc
-    out.vz[...] = 0
+    out.vx = -yc
+    out.vy = xc
+    out.vz = 0
 
     # other variables
-    out.P[...] = P
+    out.P = P
     return out
 
 
@@ -162,9 +162,9 @@ def shock_tube_1d(
     out = NamedNumpyArray(np.asarray([np.empty_like(x)] * 5), primitive_names)
     out.rho = np.where(axis < shock_position, rho_left_right[0], rho_left_right[1])
     v = np.where(axis < shock_position, v_left_right[0], v_left_right[1])
-    out.vx[...] = v if dim == "x" else 0
-    out.vy[...] = v if dim == "y" else 0
-    out.vz[...] = v if dim == "z" else 0
+    out.vx = v if dim == "x" else 0
+    out.vy = v if dim == "y" else 0
+    out.vz = v if dim == "z" else 0
     out.P = np.where(axis < shock_position, P_left_right[0], P_left_right[1])
     return out
 
@@ -193,9 +193,9 @@ def double_shock_1d(
         vs[0],
         np.where(axis < shock_positions[1], vs[1], vs[2]),
     )
-    out.vx[...] = v if dim == "x" else 0
-    out.vy[...] = v if dim == "y" else 0
-    out.vz[...] = v if dim == "z" else 0
+    out.vx = v if dim == "x" else 0
+    out.vy = v if dim == "y" else 0
+    out.vz = v if dim == "z" else 0
     out.P = np.where(
         axis < shock_positions[0],
         Ps[0],
@@ -239,10 +239,10 @@ def shock_tube_2d(
     rsq += np.square(yc) if "y" in dims else 0
     rsq += np.square(zc) if "z" in dims else 0
     inside_blast = rsq < radius**2
-    out.rho[...] = np.where(inside_blast, rho_in_out[0], rho_in_out[1])
-    out.vx[...] = 0
-    out.vy[...] = 0
-    out.vz[...] = 0
+    out.rho = np.where(inside_blast, rho_in_out[0], rho_in_out[1])
+    out.vx = 0
+    out.vy = 0
+    out.vz = 0
     out.P = np.where(inside_blast, P_in_out[0], P_in_out[1])
     return out
 
@@ -268,10 +268,10 @@ def shu_osher_1d(
     out.rho = np.where(xr < -4, 3.857143, 1 + 0.2 * np.sin(5 * xr))
 
     v = np.where(xr < -4, 2.629369, 0)
-    out.vx[...] = v if dims == "x" else 0
-    out.vy[...] = v if dims == "y" else 0
-    out.vz[...] = v if dims == "z" else 0
-    out.P[...] = np.where(xr < -4, 10.33333, 1)
+    out.vx = v if dims == "x" else 0
+    out.vy = v if dims == "y" else 0
+    out.vz = v if dims == "z" else 0
+    out.P = np.where(xr < -4, 10.33333, 1)
 
     return out
 
@@ -296,9 +296,9 @@ def kelvin_helmholtz_2d(
     """
     out = NamedNumpyArray(np.asarray([np.empty_like(x)] * 5), primitive_names)
     inner_region = np.logical_and(0.25 < y, y < 0.75)
-    out.rho[...] = np.where(inner_region, 2, 1)
-    out.vx[...] = np.where(inner_region, 0.5, -0.5)
-    out.vy[...] = (
+    out.rho = np.where(inner_region, 2, 1)
+    out.vx = np.where(inner_region, 0.5, -0.5)
+    out.vy = (
         w0
         * np.sin(4 * np.pi * x)
         * (
@@ -306,6 +306,6 @@ def kelvin_helmholtz_2d(
             + np.exp(-np.square(y - 0.75) / (2 * sigma * sigma))
         )
     )
-    out.vz[...] = 0
-    out.P[...] = 2.5
+    out.vz = 0
+    out.P = 2.5
     return out
