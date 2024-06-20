@@ -294,8 +294,9 @@ def kelvin_helmholtz_2d(
     returns:
         out (NamedNumpyArray) : has variable names ["rho", "vx", "vy", "vz", "P"]
     """
-    out = NamedNumpyArray(np.asarray([np.empty_like(x)] * 5), primitive_names)
     inner_region = np.logical_and(0.25 < y, y < 0.75)
+
+    out = NamedNumpyArray(np.asarray([np.empty_like(x)] * 5), primitive_names)
     out.rho = np.where(inner_region, 2, 1)
     out.vx = np.where(inner_region, 0.5, -0.5)
     out.vy = (
@@ -308,4 +309,31 @@ def kelvin_helmholtz_2d(
     )
     out.vz = 0
     out.P = 2.5
+    
+    return out
+
+def double_mach_reflection_2d(
+    x: np.ndarray, y: np.ndarray = None, z: np.ndarray = None
+) -> np.ndarray:
+    """
+    Double Mach reflection
+    args:
+        x (array_like) : 3D mesh of x-points, shape (nx, ny, nz)
+        y (array_like) : 3D mesh of y-points, shape (nx, ny, nz)
+        z (array_like) : 3D mesh of z-points, shape (nx, ny, nz)
+    returns:
+        out (NamedNumpyArray) : has variable names ["rho", "vx", "vy", "vz", "P"]
+    """
+    xc = 1 / 6
+    theta = np.pi / 3
+    xp = x - y / np.tan(theta)
+    gamma = 1.4
+
+    out = NamedNumpyArray(np.asarray([np.empty_like(x)] * 5), primitive_names)
+    out.rho = np.where(xp < xc, 8, gamma)
+    out.vx = np.where(xp < xc, 7.145, 0)
+    out.vy = np.where(xp < xc, -8.25 / 2, 0)
+    out.vz = 0
+    out.P = np.where(xp < xc, 116.5, 1)
+
     return out
