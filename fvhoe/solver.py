@@ -54,6 +54,7 @@ class EulerSolver(ODE):
         snapshot_dir: str = "snapshots",
         dumpall: bool = False,
         snapshots_as_fv_averages: bool = True,
+        snapshot_helper_function: callable = None,
         cupy: bool = False,
     ):
         """
@@ -88,7 +89,6 @@ class EulerSolver(ODE):
                 "hllc2" : Romain's variation
                 "hllc3" : David's variation
             conservative_ic (bool) : indicates that w0 returns conservative variables if true
-            snapshots_as_fv_averages (bool) : save snapshots as finite volume averages
             fixed_primitive_variables (Iterable) : series of primitive variables to keep fixed to their initial value
             a_posteriori_slope_limiting (bool) : whether to apply a postreiori slope limiting
             slope_limiter (str) : slope limiter code, "minmod", "moncen", None
@@ -100,6 +100,7 @@ class EulerSolver(ODE):
             snapshot_dir (str) : directory to save snapshots
             dumpall (bool) : save all variables in snapshot
             snapshots_as_fv_averages (bool) : save snapshots as finite volume averages. if false, save as cell centers
+            snapshot_helper_function (callable) : function to call at the end of a snapshot with self as the sole argument
             cupy (bool) : whether to use GPUs via the cupy library
         returns:
             EulerSolver object
@@ -148,6 +149,7 @@ class EulerSolver(ODE):
         self.snapshot_dir = snapshot_dir
         self.dumpall = dumpall
         self.snapshots_as_fv_averages = snapshots_as_fv_averages
+        self.snapshot_helper_function = snapshot_helper_function
         self.cupy = cupy
         self.NamedArray = NamedCupyArray if cupy else NamedNumpyArray
 
@@ -555,6 +557,9 @@ class EulerSolver(ODE):
             log["trouble"] = self.trouble
         self.snapshots.append(log)
         self.snapshot_times.append(self.t)
+
+        if self.snapshot_helper_function is not None:
+            self.snapshot_helper_function(self)
 
     def write_snapshots(self, overwrite: bool):
         """

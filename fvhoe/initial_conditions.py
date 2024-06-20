@@ -274,3 +274,38 @@ def shu_osher_1d(
     out.P[...] = np.where(xr < -4, 10.33333, 1)
 
     return out
+
+
+def kelvin_helmholtz_2d(
+    x: np.ndarray,
+    y: np.ndarray = None,
+    z: np.ndarray = None,
+    sigma: float = 0.05 * np.sqrt(2),
+    w0: float = 0.1,
+) -> NamedNumpyArray:
+    """
+    2D Kelvin-Helmholtz instability
+    args:
+        x (array_like) : 3D mesh of x-points, shape (nx, ny, nz)
+        y (array_like) : 3D mesh of y-points, shape (nx, ny, nz)
+        z (array_like) : 3D mesh of z-points, shape (nx, ny, nz)
+        sigma (float) : vy perturbation amplitude
+        w0 (float) : vy perturbation exponential amplitude
+    returns:
+        out (NamedNumpyArray) : has variable names ["rho", "vx", "vy", "vz", "P"]
+    """
+    out = NamedNumpyArray(np.asarray([np.empty_like(x)] * 5), primitive_names)
+    inner_region = np.logical_and(0.25 < y, y < 0.75)
+    out.rho[...] = np.where(inner_region, 2, 1)
+    out.vx[...] = np.where(inner_region, 0.5, -0.5)
+    out.vy[...] = (
+        w0
+        * np.sin(4 * np.pi * x)
+        * (
+            np.exp(-np.square(y - 0.25) / (2 * sigma * sigma))
+            + np.exp(-np.square(y - 0.75) / (2 * sigma * sigma))
+        )
+    )
+    out.vz[...] = 0
+    out.P[...] = 2.5
+    return out

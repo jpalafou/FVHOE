@@ -6,7 +6,9 @@ fvhoe.egg-info/
 .nox/
 .ruff_cache/
 
+# outputs
 **/data/
-*.log
 **/snapshots/
-tests/data/
+**/*.log
+**/*.out
+**/*.slurm
