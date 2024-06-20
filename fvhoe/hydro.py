@@ -116,6 +116,7 @@ def advection_dt(
 def hydro_dt(
     w: NamedNumpyArray,
     h: float,
+    ndim: float,
     CFL: float,
     gamma: float,
     rho_P_sound_speed_floor: bool = False,
@@ -125,6 +126,7 @@ def hydro_dt(
     args:
         w (NamedArray) : primitive variables
         h (float) : mesh spacing
+        ndim (int) : number of dimensions
         CFL (float) : Courant-Friedrichs-Lewy condition
         gamma (float) : specific heat ratio
         rho_P_sound_speed_floor (bool) : whether to apply a floor to density and pressure when computing sound speed
@@ -135,7 +137,7 @@ def hydro_dt(
     vxa = np.abs(w.vx)
     vya = np.abs(w.vy)
     vza = np.abs(w.vz)
-    out = CFL * h / np.max(np.maximum(np.maximum(vxa, vya), vza) + c).item()
+    out = CFL * h / np.max(vxa + vya + vza + ndim * c).item()
     if out < 0:
         raise BaseException("Negative dt encountered.")
     return out

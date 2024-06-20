@@ -124,6 +124,7 @@ class EulerSolver(ODE):
         self.p = (px, py, pz)
         self.CFL = CFL
         self.fixed_dt = fixed_dt
+        self.ndim = sum([i > 1 for i in self.n])
 
         # physics
         self.gamma = gamma
@@ -296,6 +297,7 @@ class EulerSolver(ODE):
             dt = hydro_dt(
                 w=w_bc,
                 h=min(self.h),
+                ndim=self.ndim,
                 CFL=self.CFL,
                 gamma=self.gamma,
                 rho_P_sound_speed_floor=self.rho_P_sound_speed_floor,
