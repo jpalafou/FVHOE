@@ -1,12 +1,14 @@
+import cProfile
 from fvhoe.boundary_conditions import BoundaryCondition
 from fvhoe.initial_conditions import kelvin_helmholtz_2d
 from fvhoe.solver import EulerSolver
 import matplotlib.pyplot as plt
 import numpy as np
+import pstats
 
 N = 256
-p = 3
-T = 0.1
+p = 1
+T = 0.05
 filename = f"kh_timing_{N=}_{p=}"
 
 solver = EulerSolver(
@@ -24,15 +26,23 @@ solver = EulerSolver(
     pressure_floor=False,
     rho_P_sound_speed_floor=False,
     slope_limiter="minmod",
+    progress_bar=False,
     cupy=True,
 )
 
-solver.rkorder(
-    T,
-    downbeats=np.linspace(0, T, 21),
-    filename=filename,
-    overwrite=True,
-)
+
+def runme():
+    solver.rkorder(
+        T,
+        downbeats=np.linspace(0, T, 21),
+        filename=filename,
+        overwrite=True,
+    )
+
+
+cProfile.run("runme()", "profile_results")
+stats = pstats.Stats("profile_results")
+stats.sort_stats("time").print_stats()
 
 # make plot
 fig, ax = plt.subplots(2, 2, sharex=True, sharey=True)

@@ -210,7 +210,11 @@ class EulerSolver(ODE):
             self, *args, **kwargs
         )
 
+        # misc
+        self.f_evaluation_count = 0
+
     def f(self, t, u):
+        self.f_evaluation_count += 1
         return self.hydrodynamics(u)
 
     def hydrodynamics(self, u: NamedNumpyArray) -> Tuple[float, NamedNumpyArray]:

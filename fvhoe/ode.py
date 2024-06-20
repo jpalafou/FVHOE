@@ -109,8 +109,12 @@ class ODE(ABC):
 
         # if given n_timesteps, perform a simple time evolution
         if predetermined_step_count:
+            self.snapshot()
+            clock_start = time.time()
             for _ in tqdm(range(n_timesteps)):
                 self.take_step()
+            self.execution_time = time.time() - clock_start
+            self.snapshot()
             return
 
         # initialize progress bar
@@ -140,8 +144,7 @@ class ODE(ABC):
                 self.snapshot()
                 if downbeats and self.t == target_time:
                     target_time = downbeats.pop(0)
-        clock_finish = time.time()
-        self.execution_time = clock_finish - clock_start
+        self.execution_time = time.time() - clock_start
 
         # clean up progress bar
         self.progress_bar_action(action="cleanup")
