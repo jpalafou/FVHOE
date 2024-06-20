@@ -309,8 +309,9 @@ def kelvin_helmholtz_2d(
     )
     out.vz = 0
     out.P = 2.5
-    
+
     return out
+
 
 def double_mach_reflection_2d(
     x: np.ndarray, y: np.ndarray = None, z: np.ndarray = None
