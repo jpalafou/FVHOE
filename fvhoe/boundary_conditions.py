@@ -23,12 +23,13 @@ def set_dirichlet_bc(
     x: np.ndarray = None,
     y: np.ndarray = None,
     z: np.ndarray = None,
+    t: float = None,
 ) -> None:
     """
     set Dirichlet boundaries
     args:
         f (callable, float) : defines boundary values
-            f(x, y, z) (callable) : boundary function
+            f(x, y, z, t) (callable) : boundary function
             f (float) : uniform boundary
         u (array_like) : padded array of shape (nx, ny, nz)
         num_ghost (int) : number of 'ghost zones' on pos end of domain
@@ -73,7 +74,7 @@ def set_dirichlet_bc(
         boundary_view = gv(cut=(-num_ghost, 0))
         if callable(f):
             x_bc, y_bc, z_bc = x[boundary_view], y[boundary_view], z[boundary_view]
-            boundary_values = f(x_bc, y_bc, z_bc)
+            boundary_values = f(x_bc, y_bc, z_bc, t)
         else:
             boundary_values = f
         u[boundary_view] = boundary_values
@@ -196,7 +197,7 @@ def set_reflective_bc(
     pad_width[axis] = (0, num_ghost)
     u[...] = np.pad(u[gv(cut=(0, num_ghost))], pad_width=pad_width, mode="symmetric")
     if negative:
-        u[gv(cut=(0, num_ghost))] *= -1
+        u[gv(cut=(-num_ghost, 0))] *= -1
 
     return u
 
@@ -340,11 +341,13 @@ class BoundaryCondition:
         self,
         u: NamedNumpyArray,
         gw: Iterable[int],
+        t: float = None,
     ) -> np.ndarray:
         """
         args:
             u (NamedArray) : array of shape (# vars, nx, ny, nz)
             gw (Iterable[int]) : ghost zone width in each direction (gwx, gwy, gwz)
+            t (float) : for time-dependent boundary conditions
         returns:
             out (array_like) : w with bcs applied, shape (5, nx + 2 * gwx, ...)
         """
@@ -404,6 +407,9 @@ class BoundaryCondition:
             bc_value = getattr(self, f"{dim}_value")[i][var]
             num_ghost, h, p = gw[j], self.h[j], self.p[j]
 
+            if num_ghost == 0:
+                continue
+
             match bc:
                 case "periodic":
                     if ALREADY_APPLIED_PERIODIC_BOUNDARY.get(f"{var}{dim}", False):
@@ -434,6 +440,7 @@ class BoundaryCondition:
                         x=X,
                         y=Y,
                         z=Z,
+                        t=t,
                     )
                 case "neumann":
                     raise NotImplementedError("Neumann boundary conditions.")
@@ -450,6 +457,18 @@ class BoundaryCondition:
                     ubc = set_free_bc(
                         u=getattr(out, var), num_ghost=num_ghost, dim=dim, pos=pos
                     )
+                case "special-case-double-mach-reflection-y=0":
+                    ubc_free = set_free_bc(
+                        u=getattr(out, var), num_ghost=num_ghost, dim=dim, pos=pos
+                    )
+                    ubc_reflective = set_reflective_bc(
+                        u=getattr(out, var),
+                        num_ghost=num_ghost,
+                        dim=dim,
+                        pos=pos,
+                        negative=var == "my",
+                    )
+                    ubc = np.where(X < 1 / 6, ubc_free, ubc_reflective)
                 case None:
                     continue
                 case _:

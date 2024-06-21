@@ -488,13 +488,13 @@ class EulerSolver(ODE):
         returns:
             w (NamedArray) : primitive variables as finite volume averages or centroids
         """
-        u_bc = self.bc.apply(u, gw=gw)
+        u_bc = self.bc.apply(u, gw=gw, t=self.t)
         u_cell_centers = interpolate_cell_centers(u_bc, p=p)
         w_cell_centers = compute_primitives(u_cell_centers, gamma=self.gamma)
         if self.fixed_primitive_variables is not None and self.t > 0:
             w0_cell_centers = self.w0_cell_centers_cache.get(gw, None)
             if w0_cell_centers is None:
-                u0_bc = self.bc.apply(self.u0, gw=gw)
+                u0_bc = self.bc.apply(self.u0, gw=gw, t=self.t)
                 u0_cell_centers = interpolate_cell_centers(u0_bc, p=p)
                 w0_cell_centers = compute_primitives(u0_cell_centers, gamma=self.gamma)
                 self.w0_cell_centers_cache[gw] = w0_cell_centers
@@ -538,6 +538,7 @@ class EulerSolver(ODE):
                         int(np.ceil(self.p[1] / 2)),
                         int(np.ceil(self.p[1] / 2)),
                     ),
+                    t=self.t,
                 )
                 u = interpolate_cell_centers(u_bc, p=self.p)
             if self.cupy:
