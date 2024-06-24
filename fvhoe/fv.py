@@ -124,6 +124,31 @@ def conservative_interpolation(
                     + -1 * fvarr[gv(cut=(3, 1))]
                     + 0 * fvarr[gv(cut=(4, 0))]
                 ) / 24
+        case 7:
+            if pos == "l":
+                out = (
+                    (-1 / 560) * fvarr[gv(cut=(0, 8))]
+                    + (17 / 840) * fvarr[gv(cut=(1, 7))]
+                    + (-97 / 840) * fvarr[gv(cut=(2, 6))]
+                    + (449 / 840) * fvarr[gv(cut=(3, 5))]
+                    + (319 / 420) * fvarr[gv(cut=(4, 4))]
+                    + (-223 / 840) * fvarr[gv(cut=(5, 3))]
+                    + (71 / 840) * fvarr[gv(cut=(6, 2))]
+                    + (-1 / 56) * fvarr[gv(cut=(7, 1))]
+                    + (1 / 560) * fvarr[gv(cut=(8, 0))]
+                )
+            elif pos == "c":
+                out = (
+                    0 * fvarr[gv(cut=(0, 8))]
+                    + (-5 / 7168) * fvarr[gv(cut=(1, 7))]
+                    + (159 / 17920) * fvarr[gv(cut=(2, 6))]
+                    + (-7621 / 107520) * fvarr[gv(cut=(3, 5))]
+                    + (30251 / 26880) * fvarr[gv(cut=(4, 4))]
+                    + (-7621 / 107520) * fvarr[gv(cut=(5, 3))]
+                    + (159 / 17920) * fvarr[gv(cut=(6, 2))]
+                    + (-5 / 7168) * fvarr[gv(cut=(7, 1))]
+                    + 0 * fvarr[gv(cut=(8, 0))]
+                )
         case _:
             raise NotImplementedError(f"{p=}")
 
@@ -161,6 +186,18 @@ def transverse_reconstruction(u: np.ndarray, p: int, axis: int) -> np.ndarray:
                 + 1 * u[gv(cut=(3, 1))]
                 + 0 * u[gv(cut=(4, 0))]
             ) / 24
+        case 7:
+            out = (
+                0 * u[gv(cut=(0, 8))]
+                + (367 / 967680) * u[gv(cut=(1, 7))]
+                + (-281 / 53760) * u[gv(cut=(2, 6))]
+                + (6361 / 107520) * u[gv(cut=(3, 5))]
+                + (215641 / 241920) * u[gv(cut=(4, 4))]
+                + (6361 / 107520) * u[gv(cut=(5, 3))]
+                + (-281 / 53760) * u[gv(cut=(6, 2))]
+                + (367 / 967680) * u[gv(cut=(7, 1))]
+                + 0 * u[gv(cut=(8, 0))]
+            )
         case _:
             raise NotImplementedError(f"{p=}")
 
