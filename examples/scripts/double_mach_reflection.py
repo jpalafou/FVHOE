@@ -199,9 +199,10 @@ solver = EulerSolver(
     snapshot_helper_function=snapshot_helper_function,
 )
 
+T = 0.2
 solver.rkorder(
-    0.2,
-    downbeats=np.linspace(0, 0.2, 41).tolist(),
+    T,
+    downbeats=np.linspace(0, T, 41).tolist(),
     filename=filename,
     overwrite=True,
 )

@@ -23,6 +23,16 @@ import os
 import pickle
 from typing import Iterable, Tuple
 
+try:
+    import cupy as cp
+    from cupy import ndarray as cp_ndarray
+
+    CUPY_AVAILABLE = True
+except Exception:
+    from numpy import ndarray as cp_ndarray
+
+    CUPY_AVAILABLE = False
+
 
 class EulerSolver(ODE):
     def __init__(
@@ -617,11 +627,11 @@ class EulerSolver(ODE):
             NAD_mag = self.NAD_violation_magnitude
 
         # convert cupy arrays to numpy arrays
-        if self.cupy:
+        if self.cupy and CUPY_AVAILABLE:
             w = w.asnamednumpy()
             if self.a_posteriori_slope_limiting:
-                trouble = self.trouble.asnumpy()
-                NAD_mag = self.NAD_violation_magnitude.asnumpy()
+                trouble = cp.asnumpy(self.trouble)
+                NAD_mag = cp.asnumpy(self.NAD_violation_magnitude)
 
         # append dictionary to list of snapshots
         log = {
@@ -684,15 +694,16 @@ class EulerSolver(ODE):
             if (
                 callable(v)
                 or isinstance(v, np.ndarray)
+                or isinstance(v, cp_ndarray)
                 or isinstance(v, NamedNumpyArray)
                 or isinstance(v, NamedCupyArray)
                 or k
                 in [
                     "NamedArray",
                     "progress_bar",
+                    "timestamps",
                     "snapshots",
                     "w0_cell_centers_cache",
-                    "trouble",
                 ]
             ):
                 continue
