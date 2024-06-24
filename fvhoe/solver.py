@@ -123,7 +123,10 @@ class EulerSolver(ODE):
         self.p = (px, py, pz)
         self.CFL = CFL
         self.fixed_dt = fixed_dt
-        self.ndim = sum([i > 1 for i in self.n])
+        self.xdim = not (self.n[0] == 1 and self.p[0] == 0)
+        self.ydim = not (self.n[1] == 1 and self.p[1] == 0)
+        self.zdim = not (self.n[2] == 1 and self.p[2] == 0)
+        self.ndim = int(self.xdim) + int(self.ydim) + int(self.zdim)
 
         # physics
         self.gamma = gamma
@@ -215,6 +218,11 @@ class EulerSolver(ODE):
         # misc
         self.f_evaluation_count = 0
 
+        # preallocate flux arrays
+        self.F = self.NamedArray(np.empty((5, nx + 1, ny, nz)), conservative_names)
+        self.G = self.NamedArray(np.empty((5, nx, ny + 1, nz)), conservative_names)
+        self.H = self.NamedArray(np.empty((5, nx, ny, nz + 1)), conservative_names)
+
     def f(self, t, u):
         self.f_evaluation_count += 1
         return self.hydrodynamics(u)
@@ -228,20 +236,21 @@ class EulerSolver(ODE):
             dt, dudt (float, NamedNumpyArray) : time-step size, conservative variable dynamics
         """
         # high-order fluxes
-        dt, (F, G, H) = self.hydrofluxes(u=u, p=self.p)
+        dt, (self.F[...], self.G[...], self.H[...]) = self.hydrofluxes(u=u, p=self.p)
 
         if self.a_posteriori_slope_limiting:
-            self.revise_fluxes(u=u, F=F, G=G, H=H, dt=dt)
+            self.revise_fluxes(u=u, F=self.F, G=self.G, H=self.H, dt=dt)
 
         # compute conservative variable dynamics
-        dudt = self.euler_equation(F=F, G=G, H=H)
+        dudt = self.euler_equation(F=self.F, G=self.G, H=self.H)
         return dt, dudt
 
     def hydrofluxes(
         self, u: NamedNumpyArray, p: Tuple[int, int, int], slope_limiter: str = None
     ) -> Tuple[float, Tuple[NamedNumpyArray, NamedNumpyArray, NamedNumpyArray]]:
         """
-        compute the Euler equation fluxes F, G, H with degree p polynomials
+        compute the Euler equation fluxes F, G, H with degree p polynomials. optionally apply slope limiting.
+        if xdim is False, F is returned as self.F and so on for G and H
         args:
             u (NamedArray) : cell-averages of conservative variables. has shape (5, nx, ny, nz)
             p (Tuple[int, int, int]) : polynomial interpolation degree (px, py, pz)
@@ -271,9 +280,9 @@ class EulerSolver(ODE):
             u=u,
             p=p,
             gw=(
-                2 * int(np.ceil(p[0] / 2)) + gw,
-                2 * int(np.ceil(p[1] / 2)) + gw,
-                2 * int(np.ceil(p[2] / 2)) + gw,
+                2 * int(np.ceil(p[0] / 2)) + gw if self.xdim else 0,
+                2 * int(np.ceil(p[1] / 2)) + gw if self.ydim else 0,
+                2 * int(np.ceil(p[2] / 2)) + gw if self.zdim else 0,
             ),
         )
 
@@ -308,92 +317,118 @@ class EulerSolver(ODE):
             dt = self.fixed_dt
 
         # interpolate x face midpoints
-        w_xy = conservative_interpolation(w_bc, p=p[2], axis=3, pos="c")
-        w_x = conservative_interpolation(w_xy, p=p[1], axis=2, pos="c")
-        if limit_slopes and p[0] == 1:
-            w_x_face_center_l, w_x_face_center_r = MUSCL_interpolations(
-                w_x, axis=1, limiter=slope_limiter
-            )
-        else:
-            w_x_face_center_l = conservative_interpolation(w_x, p=p[0], axis=1, pos="l")
-            w_x_face_center_r = conservative_interpolation(w_x, p=p[0], axis=1, pos="r")
+        if self.xdim:
+            w_xy = conservative_interpolation(w_bc, p=p[2], axis=3, pos="c")
+            w_x = conservative_interpolation(w_xy, p=p[1], axis=2, pos="c")
+            if limit_slopes and p[0] == 1:
+                w_x_face_center_l, w_x_face_center_r = MUSCL_interpolations(
+                    w_x, axis=1, limiter=slope_limiter
+                )
+            else:
+                w_x_face_center_l = conservative_interpolation(
+                    w_x, p=p[0], axis=1, pos="l"
+                )
+                w_x_face_center_r = conservative_interpolation(
+                    w_x, p=p[0], axis=1, pos="r"
+                )
 
         # interpolate y face midpoints
-        w_yz = conservative_interpolation(w_bc, p=p[0], axis=1, pos="c")
-        w_y = conservative_interpolation(w_yz, p=p[2], axis=3, pos="c")
-        if limit_slopes and p[1] == 1:
-            w_y_face_center_l, w_y_face_center_r = MUSCL_interpolations(
-                w_y, axis=2, limiter=slope_limiter
-            )
-        else:
-            w_y_face_center_l = conservative_interpolation(w_y, p=p[1], axis=2, pos="l")
-            w_y_face_center_r = conservative_interpolation(w_y, p=p[1], axis=2, pos="r")
+        if self.ydim:
+            w_yz = conservative_interpolation(w_bc, p=p[0], axis=1, pos="c")
+            w_y = conservative_interpolation(w_yz, p=p[2], axis=3, pos="c")
+            if limit_slopes and p[1] == 1:
+                w_y_face_center_l, w_y_face_center_r = MUSCL_interpolations(
+                    w_y, axis=2, limiter=slope_limiter
+                )
+            else:
+                w_y_face_center_l = conservative_interpolation(
+                    w_y, p=p[1], axis=2, pos="l"
+                )
+                w_y_face_center_r = conservative_interpolation(
+                    w_y, p=p[1], axis=2, pos="r"
+                )
 
         # interpolate z face midpoints
-        w_zx = conservative_interpolation(w_bc, p=p[1], axis=2, pos="c")
-        w_z = conservative_interpolation(w_zx, p=p[0], axis=1, pos="c")
-        if limit_slopes and p[2] == 1:
-            w_z_face_center_l, w_z_face_center_r = MUSCL_interpolations(
-                w_z, axis=3, limiter=slope_limiter
-            )
-        else:
-            w_z_face_center_l = conservative_interpolation(w_z, p=p[2], axis=3, pos="l")
-            w_z_face_center_r = conservative_interpolation(w_z, p=p[2], axis=3, pos="r")
+        if self.zdim:
+            w_zx = conservative_interpolation(w_bc, p=p[1], axis=2, pos="c")
+            w_z = conservative_interpolation(w_zx, p=p[0], axis=1, pos="c")
+            if limit_slopes and p[2] == 1:
+                w_z_face_center_l, w_z_face_center_r = MUSCL_interpolations(
+                    w_z, axis=3, limiter=slope_limiter
+                )
+            else:
+                w_z_face_center_l = conservative_interpolation(
+                    w_z, p=p[2], axis=3, pos="l"
+                )
+                w_z_face_center_r = conservative_interpolation(
+                    w_z, p=p[2], axis=3, pos="r"
+                )
 
         # pointwise numerical fluxes
-        f_face_center = self.riemann_solver(
-            wl=w_x_face_center_r[:, :-1, ...],
-            wr=w_x_face_center_l[:, 1:, ...],
-            gamma=self.gamma,
-            dim="x",
-            rho_P_sound_speed_floor=self.rho_P_sound_speed_floor,
-        )
-        g_face_center = self.riemann_solver(
-            wl=w_y_face_center_r[:, :, :-1, ...],
-            wr=w_y_face_center_l[:, :, 1:, ...],
-            gamma=self.gamma,
-            dim="y",
-            rho_P_sound_speed_floor=self.rho_P_sound_speed_floor,
-        )
-        h_face_center = self.riemann_solver(
-            wl=w_z_face_center_r[:, :, :, :-1, ...],
-            wr=w_z_face_center_l[:, :, :, 1:, ...],
-            gamma=self.gamma,
-            dim="z",
-            rho_P_sound_speed_floor=self.rho_P_sound_speed_floor,
-        )
+        if self.xdim:
+            f_face_center = self.riemann_solver(
+                wl=w_x_face_center_r[:, :-1, ...],
+                wr=w_x_face_center_l[:, 1:, ...],
+                gamma=self.gamma,
+                dim="x",
+                rho_P_sound_speed_floor=self.rho_P_sound_speed_floor,
+            )
+        if self.ydim:
+            g_face_center = self.riemann_solver(
+                wl=w_y_face_center_r[:, :, :-1, ...],
+                wr=w_y_face_center_l[:, :, 1:, ...],
+                gamma=self.gamma,
+                dim="y",
+                rho_P_sound_speed_floor=self.rho_P_sound_speed_floor,
+            )
+        if self.zdim:
+            h_face_center = self.riemann_solver(
+                wl=w_z_face_center_r[:, :, :, :-1, ...],
+                wr=w_z_face_center_l[:, :, :, 1:, ...],
+                gamma=self.gamma,
+                dim="z",
+                rho_P_sound_speed_floor=self.rho_P_sound_speed_floor,
+            )
 
         # excess ghost zone counts after flux integral
         x_excess = (
             0,
-            gw - int(np.ceil(p[0] / 2)) - 1,
-            gw - 2 * int(np.ceil(p[1] / 2)),
-            gw - 2 * int(np.ceil(p[2] / 2)),
+            gw - int(np.ceil(p[0] / 2)) - 1 if self.xdim else 0,
+            gw - 2 * int(np.ceil(p[1] / 2)) if self.ydim else 0,
+            gw - 2 * int(np.ceil(p[2] / 2)) if self.zdim else 0,
         )
         y_excess = (
             0,
-            gw - 2 * int(np.ceil(p[0] / 2)),
-            gw - int(np.ceil(p[1] / 2)) - 1,
-            gw - 2 * int(np.ceil(p[2] / 2)),
+            gw - 2 * int(np.ceil(p[0] / 2)) if self.xdim else 0,
+            gw - int(np.ceil(p[1] / 2)) - 1 if self.ydim else 0,
+            gw - 2 * int(np.ceil(p[2] / 2)) if self.zdim else 0,
         )
         z_excess = (
             0,
-            gw - 2 * int(np.ceil(p[0] / 2)),
-            gw - 2 * int(np.ceil(p[1] / 2)),
-            gw - int(np.ceil(p[2] / 2)) - 1,
+            gw - 2 * int(np.ceil(p[0] / 2)) if self.xdim else 0,
+            gw - 2 * int(np.ceil(p[1] / 2)) if self.ydim else 0,
+            gw - int(np.ceil(p[2] / 2)) - 1 if self.zdim else 0,
         )
 
         # flux integrals
-        F = transverse_reconstruction(
-            transverse_reconstruction(f_face_center, axis=2, p=p[1]), axis=3, p=p[2]
-        )[tuple(slice(x_excess[i] or None, -x_excess[i] or None) for i in range(4))]
-        G = transverse_reconstruction(
-            transverse_reconstruction(g_face_center, axis=1, p=p[0]), axis=3, p=p[2]
-        )[tuple(slice(y_excess[i] or None, -y_excess[i] or None) for i in range(4))]
-        H = transverse_reconstruction(
-            transverse_reconstruction(h_face_center, axis=1, p=p[0]), axis=2, p=p[1]
-        )[tuple(slice(z_excess[i] or None, -z_excess[i] or None) for i in range(4))]
-
+        if self.xdim:
+            F = transverse_reconstruction(
+                transverse_reconstruction(f_face_center, axis=2, p=p[1]), axis=3, p=p[2]
+            )[tuple(slice(x_excess[i] or None, -x_excess[i] or None) for i in range(4))]
+        else:
+            F = self.F
+        if self.ydim:
+            G = transverse_reconstruction(
+                transverse_reconstruction(g_face_center, axis=1, p=p[0]), axis=3, p=p[2]
+            )[tuple(slice(y_excess[i] or None, -y_excess[i] or None) for i in range(4))]
+        else:
+            G = self.G
+        if self.zdim:
+            H = transverse_reconstruction(
+                transverse_reconstruction(h_face_center, axis=1, p=p[0]), axis=2, p=p[1]
+            )[tuple(slice(z_excess[i] or None, -z_excess[i] or None) for i in range(4))]
+        else:
+            H = self.H
         return dt, (F, G, H)
 
     def revise_fluxes(
@@ -469,9 +504,13 @@ class EulerSolver(ODE):
         returns:
             dudt (NamedNumpyArray) : conservative variable dynamics
         """
-        dudt = -(1 / self.h[0]) * (F[:, 1:, ...] - F[:, :-1, ...])
-        dudt += -(1 / self.h[1]) * (G[:, :, 1:, ...] - G[:, :, :-1, ...])
-        dudt += -(1 / self.h[2]) * (H[:, :, :, 1:, ...] - H[:, :, :, :-1, ...])
+        dudt = 0.0
+        if self.xdim:
+            dudt += -(1 / self.h[0]) * (F[:, 1:, ...] - F[:, :-1, ...])
+        if self.ydim:
+            dudt += -(1 / self.h[1]) * (G[:, :, 1:, ...] - G[:, :, :-1, ...])
+        if self.zdim:
+            dudt += -(1 / self.h[2]) * (H[:, :, :, 1:, ...] - H[:, :, :, :-1, ...])
         return dudt
 
     def interpolate_primitives_from_conservatives(
