@@ -200,7 +200,9 @@ class EulerSolver(ODE):
         self.density_floor = density_floor
         self.pressure_floor = pressure_floor
         self.rho_P_sound_speed_floor = rho_P_sound_speed_floor
-        self.trouble = np.zeros_like(u0_fv[0], dtype=bool)
+        self.trouble = np.zeros_like(u0_fv[0])
+        self.NAD_violation_magnitude = np.zeros_like(u0_fv[0])
+        self.trouble_counter = 1
 
         # plotting functions
         self.plot_1d_slice = lambda *args, **kwargs: plot_1d_slice(
@@ -426,14 +428,15 @@ class EulerSolver(ODE):
         w_star = self.interpolate_primitives_from_conservatives(ustar, p=self.p, gw=gws)
 
         # detect troubled cells
-        troubled_cells = detect_troubled_cells(
+        troubled_cells, NAD_mag = detect_troubled_cells(
             u=w,
             u_candidate=w_star,
             eps=1e-5,
             PAD=self.PAD,
             xp={True: "cupy", False: "numpy"}[self.cupy],
         )
-        self.trouble = troubled_cells[0]
+
+        self.log_troubles(troubled_cells, NAD_mag)
 
         if not np.any(troubled_cells):
             # great, no troubled cells!
@@ -506,6 +509,36 @@ class EulerSolver(ODE):
             w = w_cell_centers
         return w
 
+    def log_troubles(
+        self,
+        trouble: np.ndarray,
+        NAD_violation_magnitude: np.ndarray,
+        reset: bool = False,
+    ) -> None:
+        """
+        log troubled cells and PAD violation magnitude as the mean along each Runge-Kutta substep
+        args:
+            trouble (array_like) : array of troubled cells
+            NAD_violation_magnitude (array_like) : array of PAD violation magnitudes
+            reset (bool) : reset the trouble counter
+        """
+        if reset:
+            self.trouble /= self.trouble_counter
+            self.NAD_violation_magnitude /= self.trouble_counter
+            self.trouble_counter = 0
+            return
+        if self.trouble_counter == 0:
+            self.trouble[...] = trouble
+            self.NAD_violation_magnitude[...] = NAD_violation_magnitude
+        else:
+            self.trouble += trouble
+            self.NAD_violation_magnitude += NAD_violation_magnitude
+        self.trouble_counter += 1
+
+    def step_helper_function(self):
+        if self.a_posteriori_slope_limiting:
+            self.log_troubles(trouble=None, NAD_violation_magnitude=None, reset=True)
+
     def snapshot(self):
         """
         log a dictionary
@@ -522,10 +555,6 @@ class EulerSolver(ODE):
             fv_average=self.snapshots_as_fv_averages,
         )
 
-        # convert to numpy
-        if self.cupy:
-            w = w.asnamednumpy()
-
         # append conservative variables if dumpall
         if self.dumpall:
             if self.snapshots_as_fv_averages:
@@ -541,10 +570,21 @@ class EulerSolver(ODE):
                     t=self.t,
                 )
                 u = interpolate_cell_centers(u_bc, p=self.p)
-            if self.cupy:
-                u = u.asnamednumpy()
             w = w.merge(u)
 
+        # log troubles
+        if self.a_posteriori_slope_limiting:
+            trouble = self.trouble
+            NAD_mag = self.NAD_violation_magnitude
+
+        # convert cupy arrays to numpy arrays
+        if self.cupy:
+            w = w.asnamednumpy()
+            if self.a_posteriori_slope_limiting:
+                trouble = self.trouble.asnumpy()
+                NAD_mag = self.NAD_violation_magnitude.asnumpy()
+
+        # append dictionary to list of snapshots
         log = {
             "x": self.x,
             "y": self.y,
@@ -553,7 +593,9 @@ class EulerSolver(ODE):
             "w": w,
         }
         if self.a_posteriori_slope_limiting:
-            log["trouble"] = self.trouble
+            log["trouble"] = trouble
+            log["NAD violation magnitude"] = NAD_mag
+
         self.snapshots.append(log)
         self.snapshot_times.append(self.t)
 

@@ -42,47 +42,6 @@ class ODE(ABC):
         # progress bar
         self.print_progress_bar = True if progress_bar else False
 
-    @abstractmethod
-    def f(self, t: float, u) -> Tuple[float, Any]:
-        """
-        args:
-            t (float) : time value
-            u (any) : state
-        returns:
-            dt, dudt (tuple[float, Any]) : time-step size, velocity
-        """
-        pass
-
-    def utility_function(self):
-        """
-        is called in the main loop for various purposes
-        """
-        pass
-
-    def snapshot(self):
-        """
-        overwrite to log more data
-        """
-        self.snapshots.append(None)
-        self.snapshot_times.append(self.t)
-
-    def progress_bar_action(self, action: str, stopping_time: float = None):
-        """
-        modify progress bar
-        args:
-            action (str) : "setup", "update", "cleanup"
-            stopping time (float) : time to simulate until
-        """
-        if self.print_progress_bar:
-            if action == "setup":
-                bar_format = "{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}]"
-                self.progress_bar = tqdm(total=stopping_time, bar_format=bar_format)
-            elif action == "update":
-                self.progress_bar.n = self.t
-                self.progress_bar.refresh()
-            elif action == "cleanup":
-                self.progress_bar.close()
-
     def integrate(
         self,
         stopping_time: float = None,
@@ -153,6 +112,13 @@ class ODE(ABC):
             self.filename = filename
             self.write_snapshots(overwrite)
 
+    def snapshot(self):
+        """
+        overwrite to log more data
+        """
+        self.snapshots.append(None)
+        self.snapshot_times.append(self.t)
+
     def take_step(self, target_time: float = None):
         """
         integrate helper function
@@ -161,10 +127,45 @@ class ODE(ABC):
         self.t += dt
         self.timestamps.append(self.t)
         self.step_count += 1
+        self.step_helper_function()
+
+    def step_helper_function(self):
+        """
+        is called at the end of each step
+        """
+        pass
+
+    def progress_bar_action(self, action: str, stopping_time: float = None):
+        """
+        modify progress bar
+        args:
+            action (str) : "setup", "update", "cleanup"
+            stopping time (float) : time to simulate until
+        """
+        if self.print_progress_bar:
+            if action == "setup":
+                bar_format = "{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}]"
+                self.progress_bar = tqdm(total=stopping_time, bar_format=bar_format)
+            elif action == "update":
+                self.progress_bar.n = self.t
+                self.progress_bar.refresh()
+            elif action == "cleanup":
+                self.progress_bar.close()
 
     def write_snapshots(self):
         """
         overwrite to save snapshots
+        """
+        pass
+
+    @abstractmethod
+    def f(self, t: float, u) -> Tuple[float, Any]:
+        """
+        args:
+            t (float) : time value
+            u (any) : state
+        returns:
+            dt, dudt (tuple[float, Any]) : time-step size, velocity
         """
         pass
 

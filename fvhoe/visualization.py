@@ -1,3 +1,4 @@
+from matplotlib import cm
 import numpy as np
 from typing import Tuple
 
@@ -93,6 +94,7 @@ def plot_1d_slice(
     x: float = None,
     y: float = None,
     z: float = None,
+    tol: float = 0,
     verbose: bool = True,
     **kwargs,
 ) -> None:
@@ -106,6 +108,7 @@ def plot_1d_slice(
         x (float) : x-coordinate. nearest x-coordinate is used if it is not in the list of x-coordinates
         y (float) : y-coordinate. nearest y-coordinate is used if it is not in the list of y-coordinates
         z (float) : z-coordinate. nearest z-coordinate is used if it is not in the list of z-coordinates
+        tol (float) : tolerance for trouble based on magnitude of NAD violation
         verbose (bool) : print the exact used coordinates
         **kwargs : keyword arguments for matplotlib.pyplot.plot
     returns:
@@ -119,24 +122,33 @@ def plot_1d_slice(
 
     if sum([x is None, y is None, z is None]) != 1:
         raise BaseException("One out of the three coordinates x-y-z must be None")
-
     # get the indices of the nearest x, y, z, t values in the snapshots
     (i, j, k, n), (xn, yn, zn, tn) = get_indices_from_coordinates(snapshots, x, y, z, t)
     xarr, yarr, zarr = snapshots[n]["x"], snapshots[n]["y"], snapshots[n]["z"]
-
-    # get the arrays to plot
+    # get slice information
     if x is None:
         x_for_plotting = xarr
-        y_for_plotting = getattr(snapshots[n]["w"], param)[:, j, k]
+        slices = (slice(None), j, k)
     elif y is None:
         x_for_plotting = yarr
-        y_for_plotting = getattr(snapshots[n]["w"], param)[i, :, k]
+        slices = (i, slice(None), k)
     elif z is None:
         x_for_plotting = zarr
-        y_for_plotting = getattr(snapshots[n]["w"], param)[i, j, :]
+        slices = (i, j, slice(None))
+    # y-data
+    if param == "trouble":
+        trouble = snapshots[n]["trouble"]
+        NAD_mag = snapshots[n]["NAD violation magnitude"]
+        source_array = np.where(NAD_mag > tol, trouble, 0)
+    else:
+        source_array = getattr(snapshots[n]["w"], param)
+    y_for_plotting = source_array[slices]
+    # print summary
     if verbose:
         print(xyzt_summary(xarr, yarr, zarr, xn, yn, zn, tn))
-    return ax.plot(x_for_plotting, y_for_plotting, **kwargs)
+    # return plot
+    out = ax.plot(x_for_plotting, y_for_plotting, **kwargs)
+    return out
 
 
 def plot_2d_slice(
@@ -147,6 +159,10 @@ def plot_2d_slice(
     x=None,
     y=None,
     z=None,
+    overlay_trouble: bool = False,
+    tol: float = 0,
+    cmap: str = "GnBu_r",
+    trouble_color: str = "red",
     verbose: bool = True,
     **kwargs,
 ) -> None:
@@ -160,6 +176,10 @@ def plot_2d_slice(
         x (float) : x-coordinate. nearest x-coordinate is used if it is not in the list of x-coordinates
         y (float) : y-coordinate. nearest y-coordinate is used if it is not in the list of y-coordinates
         z (float) : z-coordinate. nearest z-coordinate is used if it is not in the list of z-coordinates
+        overlay_trouble (bool) : overlay trouble on the plot
+        tol (float) : tolerance for trouble based on magnitude of NAD violation
+        cmap (str) : colormap
+        trouble_color (str) : color for trouble
         verbose (bool) : print the exact used coordinates
         **kwargs : keyword arguments for matplotlib.pyplot.imshow
     returns:
@@ -173,28 +193,45 @@ def plot_2d_slice(
 
     if sum([x is None, y is None, z is None]) != 2:
         raise BaseException("Two out of the three coordinates x-y-z must be None")
-
     # get the indices of the nearest x, y, z, t values in the snapshots
     (i, j, k, n), (xn, yn, zn, tn) = get_indices_from_coordinates(snapshots, x, y, z, t)
     xarr, yarr, zarr = snapshots[n]["x"], snapshots[n]["y"], snapshots[n]["z"]
-
-    # get the arrays to plot
+    # get slice information
     if x is None and y is None:
-        z_for_plotting = getattr(snapshots[n]["w"], param)[:, :, k]
-        z_for_plotting = np.rot90(z_for_plotting, 1)
+        slices = (slice(None), slice(None), k)
         horizontal_axis, vertical_axis = "x", "y"
         limits = (xarr[0], xarr[-1], yarr[0], yarr[-1])
     elif y is None and z is None:
-        z_for_plotting = getattr(solver.snapshots[n]["w"], param)[i, :, :]
-        z_for_plotting = np.rot90(z_for_plotting, 1)
+        slices = (i, slice(None), slice(None))
         horizontal_axis, vertical_axis = "y", "z"
         limits = (yarr[0], yarr[-1], zarr[0], zarr[-1])
     elif x is None and z is None:
-        z_for_plotting = getattr(solver.snapshots[n]["w"], param)[:, j, :]
-        z_for_plotting = np.rot90(z_for_plotting, 1)
+        slices = (i, j, slice(None))
         horizontal_axis, vertical_axis = "x", "z"
         limits = (xarr[0], xarr[-1], zarr[0], zarr[-1])
+    # get z data
+    if param == "trouble" or overlay_trouble:
+        trouble = snapshots[n]["trouble"][slices]
+        NAD_mag = snapshots[n]["NAD violation magnitude"][slices]
+        trouble_for_plotting = np.where(NAD_mag > tol, trouble, 0)
+    if param == "trouble":
+        source_array = snapshots[n]["trouble"]
+    else:
+        source_array = getattr(snapshots[n]["w"], param)
+    z_for_plotting = source_array[slices]
+    # rotate
+    z_for_plotting = np.rot90(z_for_plotting, 1)
+    if overlay_trouble:
+        trouble_for_plotting = np.rot90(trouble_for_plotting, 1)
+    # define colormap
+    colormap = getattr(cm, cmap)
+    if overlay_trouble:
+        z_for_plotting = np.where(trouble_for_plotting > 0, np.nan, z_for_plotting)
+        colormap.set_bad(color=trouble_color)
+    # print summary
     if verbose:
         print(xyzt_summary(xarr, yarr, zarr, xn, yn, zn, tn))
         print(f"{horizontal_axis=}, {vertical_axis=}")
-    return ax.imshow(z_for_plotting, extent=limits, **kwargs)
+    # return plot
+    out = ax.imshow(z_for_plotting, extent=limits, cmap=colormap, **kwargs)
+    return out
