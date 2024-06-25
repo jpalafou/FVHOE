@@ -57,10 +57,13 @@ class EulerSolver(ODE):
         a_posteriori_slope_limiting: bool = False,
         slope_limiter: str = "minmod",
         NAD: float = 1e-5,
+        NAD_mode: str = "any",
+        NAD_vars: list = None,
         PAD: dict = None,
         density_floor: bool = False,
         pressure_floor: bool = False,
         rho_P_sound_speed_floor: bool = False,
+        all_floors: bool = False,
         progress_bar: bool = True,
         snapshot_dir: str = "snapshots",
         dumpall: bool = False,
@@ -101,11 +104,14 @@ class EulerSolver(ODE):
             fixed_primitive_variables (Iterable) : series of primitive variables to keep fixed to their initial value
             a_posteriori_slope_limiting (bool) : whether to apply a postreiori slope limiting
             slope_limiter (str) : slope limiter code, "minmod", "moncen", None
-            NAD (float) : NAD tolerance
+            NAD (float) : NAD tolerance in troubled cell detection
+            NAD_mode (str) : NAD mode in troubled cell detection: "any", "only"
+            NAD_vars (list) : when NAD_mode is "only", list of variables to apply NAD
             PAD (dict) : primitive variable limits for slope limiting
             density_floor (bool) : whether to apply a density floor
             pressure_floor (bool) : whether to apply a pressure floor
             rho_P_sound_speed_floor (bool) : whether to apply a pressure and density floor in the sound speed function
+            all_floors (bool) : apply all floors
             progress_bar (bool) : whether to print out a progress bar
             snapshot_dir (str) : directory to save snapshots
             dumpall (bool) : save all variables in snapshot
@@ -202,6 +208,8 @@ class EulerSolver(ODE):
         self.a_posteriori_slope_limiting = a_posteriori_slope_limiting
         self.slope_limiter = slope_limiter
         self.NAD = NAD
+        self.NAD_mode = NAD_mode
+        self.NAD_vars = NAD_vars
         self.PAD = PAD if isinstance(PAD, dict) else {}
         defaults_limits = {
             "rho": (0.0, np.inf),
@@ -213,9 +221,9 @@ class EulerSolver(ODE):
         for var in primitive_names:
             if var not in self.PAD.keys():
                 self.PAD[var] = defaults_limits[var]
-        self.density_floor = density_floor
-        self.pressure_floor = pressure_floor
-        self.rho_P_sound_speed_floor = rho_P_sound_speed_floor
+        self.density_floor = density_floor or all_floors
+        self.pressure_floor = pressure_floor or all_floors
+        self.rho_P_sound_speed_floor = rho_P_sound_speed_floor or all_floors
         self.trouble = np.zeros_like(u0_fv[0])
         self.NAD_violation_magnitude = np.zeros_like(u0_fv[0])
         self.trouble_counter = 1
@@ -479,7 +487,9 @@ class EulerSolver(ODE):
         troubled_cells, NAD_mag = detect_troubled_cells(
             u=w,
             u_candidate=w_star,
-            eps=self.NAD,
+            NAD_tolerance=self.NAD,
+            NAD_mode=self.NAD_mode,
+            NAD_vars=self.NAD_vars,
             PAD=self.PAD,
             xp={True: "cupy", False: "numpy"}[self.cupy],
         )

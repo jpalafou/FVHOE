@@ -81,7 +81,9 @@ def moncen(du_left: np.ndarray, du_right: np.ndarray) -> np.ndarray:
 def detect_troubled_cells(
     u: NamedNumpyArray,
     u_candidate: NamedNumpyArray,
-    eps: float = 1e-5,
+    NAD_tolerance: float = 1e-5,
+    NAD_mode: str = "any",
+    NAD_vars: list = None,
     PAD: dict = None,
     xp: str = "numpy",
 ) -> np.ndarray:
@@ -89,7 +91,9 @@ def detect_troubled_cells(
     args:
         u (NamedArray) : array of values with shape (# variables, nx, ny, nz). if u is a NamedArray, the output will still be a numpy-like array
         u_candidate (NameArray) : array of candidate values with shape (# variables, nx, ny, nz)
-        eps (float) : tolerance for NAD
+        NAD_tolerance (float) : tolerance for NAD
+        NAD_mode (str) : "any" or "only"
+        NAD_vars (list) : when NAD_mode is "only", list of variables to apply NAD
         PAD (dict) : dictionary of PAD parameters with keys given by the variables in u
         xp (str) : 'numpy' or 'cupy'
     returns:
@@ -119,11 +123,23 @@ def detect_troubled_cells(
     u_range = np.max(u, axis=(1, 2, 3), keepdims=True) - np.min(
         u, axis=(1, 2, 3), keepdims=True
     )
-    tolerance_per_var = eps * u_range
+    tolerance_per_var = NAD_tolerance * u_range
     lower_NAD_difference = u_candidate_inner - m
     upper_NAD_difference = M - u_candidate_inner
     NAD_indicator_per_var = np.minimum(lower_NAD_difference, upper_NAD_difference)
-    NAD_trouble = np.any(NAD_indicator_per_var < -tolerance_per_var, axis=0)
+
+    if NAD_mode == "any":
+        NAD_trouble = np.any(NAD_indicator_per_var < -tolerance_per_var, axis=0)
+    elif NAD_mode == "only":
+        if NAD_vars is None:
+            raise ValueError("NAD_vars must be specified when NAD_mode is 'only'")
+        NAD_trouble = np.zeros_like(u_candidate_inner[0], dtype=bool)
+        for var in NAD_vars:
+            NAD_trouble |= getattr(NAD_indicator_per_var, var) < -getattr(
+                tolerance_per_var, var
+            )
+    else:
+        raise ValueError(f"Unknown NAD_mode: {NAD_mode}")
 
     # store NAD violation magnitude
     NAD_indicator = np.min(NAD_indicator_per_var, axis=0)

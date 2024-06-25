@@ -140,4 +140,6 @@ def hydro_dt(
     out = CFL * h / np.max(vxa + vya + vza + ndim * c).item()
     if out < 0:
         raise BaseException("Negative dt encountered.")
+    elif out < 1e-16:
+        raise BaseException("dt is less than 1e-16.")
     return out
