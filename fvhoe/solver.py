@@ -56,6 +56,7 @@ class EulerSolver(ODE):
         fixed_primitive_variables: Iterable = None,
         a_posteriori_slope_limiting: bool = False,
         slope_limiter: str = "minmod",
+        NAD: float = 1e-5,
         PAD: dict = None,
         density_floor: bool = False,
         pressure_floor: bool = False,
@@ -100,6 +101,7 @@ class EulerSolver(ODE):
             fixed_primitive_variables (Iterable) : series of primitive variables to keep fixed to their initial value
             a_posteriori_slope_limiting (bool) : whether to apply a postreiori slope limiting
             slope_limiter (str) : slope limiter code, "minmod", "moncen", None
+            NAD (float) : NAD tolerance
             PAD (dict) : primitive variable limits for slope limiting
             density_floor (bool) : whether to apply a density floor
             pressure_floor (bool) : whether to apply a pressure floor
@@ -199,6 +201,7 @@ class EulerSolver(ODE):
         # slope limiting
         self.a_posteriori_slope_limiting = a_posteriori_slope_limiting
         self.slope_limiter = slope_limiter
+        self.NAD = NAD
         self.PAD = PAD if isinstance(PAD, dict) else {}
         defaults_limits = {
             "rho": (0.0, np.inf),
@@ -476,7 +479,7 @@ class EulerSolver(ODE):
         troubled_cells, NAD_mag = detect_troubled_cells(
             u=w,
             u_candidate=w_star,
-            eps=1e-5,
+            eps=self.NAD,
             PAD=self.PAD,
             xp={True: "cupy", False: "numpy"}[self.cupy],
         )
