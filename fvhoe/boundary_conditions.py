@@ -81,70 +81,6 @@ def set_dirichlet_bc(
     return u
 
 
-def set_finite_difference_neumann_bc(
-    u: np.ndarray,
-    dudx: float,
-    h: float,
-    p: int,
-    num_ghost: int,
-    dim: str,
-    pos: str,
-) -> None:
-    """
-    set boundaries of u to satistfy a Neumann boundary with a degree p polynomial
-    args:
-        u (array_like) : padded array
-        dudx (float) : target derivative at boundary
-        h (float) : grid spacing along dim
-        p (int) : interpolation polynomial degree along dim
-        num_ghost (int) : number of 'ghost zones' on  pos end of domain
-        dim (str) : dimension
-            "x" : axis = 0
-            "y" : axis = 1
-            "z" : axis = 2
-        pos (str) : left or right boundary of selected dimension
-            "l" : left
-            "r" : right
-    returns:
-        None : revises u
-    """
-    gv = partial(get_view, ndim=u.ndim, axis={"x": 0, "y": 1, "z": 2}[dim])
-    if pos == "l":
-        u[...] = u[gv(step=-1)]
-        set_finite_difference_neumann_bc(
-            u=u,
-            dudx=dudx,
-            h=h,
-            p=p,
-            num_ghost=num_ghost,
-            dim=dim,
-            pos="r",
-        )
-        u[...] = u[gv(step=-1)]
-        return
-
-    if p == 0:
-        return
-    elif p in (1, 2):
-        # u_i+1 = 2 slope h + u_i-1
-        G = 2 * dudx * h
-        u[gv(cut=(-num_ghost - 1, num_ghost))] = u[gv(cut=(-num_ghost, num_ghost - 1))]
-        # for n in range(num_ghost)[::-1]:
-        #     u[gv(cut=(-n - 1, n))] = G + u[gv(cut=(-n - 3, n + 2))]
-    elif p in (3, 4):
-        # u_i+2 = -12 slope h + 8 u_i+1 - 8u_i-1 + u_i-2
-        G = -12 * dudx * h
-        for n in range(num_ghost)[::-1]:
-            u[gv(cut=(-n - 1, n))] = (
-                G
-                + 8 * u[gv(cut=(-n - 2, n + 1))]
-                - 8 * u[gv(cut=(-n - 4, n + 3))]
-                + u[gv(cut=(-n - 5, n + 4))]
-            )
-    else:
-        raise NotImplementedError(f"{p=}")
-
-
 def set_periodic_bc(u: np.ndarray, num_ghost: int, dim: str) -> None:
     """
     set boundaries using np pad
@@ -278,7 +214,7 @@ class BoundaryCondition:
             ({"var1": bc_var1_left, "var2", bc_var1_left, ...}, {"var1": bc_var1_left, "var2", bc_var1_left, ...})
             (bc_left, bc_left) : applies same bc to all variables
             bc (str) : applies same bc to all variables on both sides
-            valid bc types : "periodic", "reflective", "dirichlet", "neumann"
+            valid bc types : "periodic", "reflective", "dirichlet"
         y (str) : boundary condition type in y-direciton ...
         z (str) : boundary condition type in z-direciton ...
         x_value (dict) : boundary condition value in x-direciton, specified at either boundary for each variable
@@ -305,7 +241,6 @@ class BoundaryCondition:
     y_domain: Tuple[float, float] = (None, None)
     z_domain: Tuple[float, float] = (None, None)
     h: Tuple[float, float, float] = (None, None, None)
-    p: Tuple[int, int, int] = (None, None, None)
 
     def __post_init__(self):
         if self.names in [[], (), {}]:
@@ -405,7 +340,7 @@ class BoundaryCondition:
         ):
             bc = getattr(self, dim)[i][var]
             bc_value = getattr(self, f"{dim}_value")[i][var]
-            num_ghost, h, p = gw[j], self.h[j], self.p[j]
+            num_ghost = gw[j]
 
             if num_ghost == 0:
                 continue
@@ -441,17 +376,6 @@ class BoundaryCondition:
                         y=Y,
                         z=Z,
                         t=t,
-                    )
-                case "neumann":
-                    raise NotImplementedError("Neumann boundary conditions.")
-                    set_finite_difference_neumann_bc(
-                        u=getattr(out, var),
-                        dudx=bc_value,
-                        h=h,
-                        p=p,
-                        num_ghost=num_ghost,
-                        dim=dim,
-                        pos=pos,
                     )
                 case "free":
                     ubc = set_free_bc(
@@ -532,7 +456,6 @@ class BoundaryCondition:
             "y_domain": self.y_domain,
             "z_domain": self.z_domain,
             "h": self.h,
-            "p": self.p,
         }
         self._json_dict = json_dict
         return json_dict
