@@ -57,7 +57,7 @@ def conservative_interpolation(
 ) -> np.ndarray:
     """
     args:
-        fvarr (array_like) : array of finite volume cell averages
+        fvarr (array_like) : array of finite volume cell averages of arbitrary shape
         p (int) : polynomial degree of conservative interpolation
         axis (int) : along which to interpolate
         pos (str) : interpolation position along finite volume
@@ -158,7 +158,7 @@ def conservative_interpolation(
 def transverse_reconstruction(u: np.ndarray, p: int, axis: int) -> np.ndarray:
     """
     args:
-        u (array_like) : array of pointwise interpolations
+        u (array_like) : array of pointwise interpolations of arbitrary shape
         p (int) : polynomial degree of integral interpolation
         axis (int) : along which to interpolate
     returns:
@@ -295,4 +295,23 @@ def fv_average(
                 weight = xw * yw * zw
                 out += weight * f(x=x + xp * hx, y=y + yp * hy, z=z + zp * hz)
 
+    return out
+
+
+def second_order_central_difference(
+    u: np.ndarray, axis: int, h: float = None
+) -> np.ndarray:
+    """
+    compute second order central difference of u along axis
+    args:
+        u (array_like) : array of arbitrary shape
+        axis (int) : along which to differentiate
+        h (float) : grid spacing. if None, no scaling is applied
+    returns:
+        out (array_like) : second order central difference of u. shorter than u by 2 along specified axis
+    """
+    gv = partial(get_view, ndim=u.ndim, axis=axis)
+    out = 0.5 * (u[gv(cut=(2, 0))] - u[gv(cut=(0, 2))])
+    if h is not None:
+        out /= h
     return out

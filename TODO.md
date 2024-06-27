@@ -4,9 +4,6 @@ truly reflective boundary condition
 
 rename 'filename' to 'foldername' or something like that
 
-smooth extrema detection
-    NAD trouble is ignored only when that same variable is SED
-
 convex blending
 
 compare contours to WENO paper

@@ -60,6 +60,8 @@ class EulerSolver(ODE):
         NAD_mode: str = "any",
         NAD_vars: list = None,
         PAD: dict = None,
+        SED: bool = True,
+        SED_tolerance: float = 1e-10,
         density_floor: bool = False,
         pressure_floor: bool = False,
         rho_P_sound_speed_floor: bool = False,
@@ -108,6 +110,8 @@ class EulerSolver(ODE):
             NAD_mode (str) : NAD mode in troubled cell detection: "any", "only"
             NAD_vars (list) : when NAD_mode is "only", list of variables to apply NAD
             PAD (dict) : primitive variable limits for slope limiting
+            SED (bool) : whether to ignore NAD trouble where smooth extrema are detected
+            SED_tolerance (float) : tolerance for avoiding dividing by 0 in smooth extrema detection
             density_floor (bool) : whether to apply a density floor
             pressure_floor (bool) : whether to apply a pressure floor
             rho_P_sound_speed_floor (bool) : whether to apply a pressure and density floor in the sound speed function
@@ -144,7 +148,14 @@ class EulerSolver(ODE):
         self.xdim = not (self.n[0] == 1 and self.p[0] == 0)
         self.ydim = not (self.n[1] == 1 and self.p[1] == 0)
         self.zdim = not (self.n[2] == 1 and self.p[2] == 0)
-        self.ndim = int(self.xdim) + int(self.ydim) + int(self.zdim)
+        self.dims = ""
+        if self.xdim:
+            self.dims += "x"
+        if self.ydim:
+            self.dims += "y"
+        if self.zdim:
+            self.dims += "z"
+        self.ndim = len(self.dims)
 
         # physics
         self.gamma = gamma
@@ -220,6 +231,8 @@ class EulerSolver(ODE):
         for var in primitive_names:
             if var not in self.PAD.keys():
                 self.PAD[var] = defaults_limits[var]
+        self.SED = SED
+        self.SED_tolerance = SED_tolerance
         self.density_floor = density_floor or all_floors
         self.pressure_floor = pressure_floor or all_floors
         self.rho_P_sound_speed_floor = rho_P_sound_speed_floor or all_floors
@@ -475,9 +488,9 @@ class EulerSolver(ODE):
 
         # interpolate finite volume primitives from finite volume conservatives
         gws = (
-            2 * int(np.ceil(self.p[0] / 2)) + 1,
-            2 * int(np.ceil(self.p[1] / 2)) + 1,
-            2 * int(np.ceil(self.p[2] / 2)) + 1,
+            2 * int(np.ceil(self.p[0] / 2)) + 3 if self.xdim else 0,
+            2 * int(np.ceil(self.p[1] / 2)) + 3 if self.ydim else 0,
+            2 * int(np.ceil(self.p[2] / 2)) + 3 if self.zdim else 0,
         )
         w = self.interpolate_primitives_from_conservatives(u, p=self.p, gw=gws)
         w_star = self.interpolate_primitives_from_conservatives(ustar, p=self.p, gw=gws)
@@ -486,10 +499,13 @@ class EulerSolver(ODE):
         troubled_cells, NAD_mag = detect_troubled_cells(
             u=w,
             u_candidate=w_star,
+            dims=self.dims,
             NAD_tolerance=self.NAD,
             NAD_mode=self.NAD_mode,
             NAD_vars=self.NAD_vars,
             PAD=self.PAD,
+            SED=self.SED,
+            SED_tolerance=self.SED_tolerance,
             xp={True: "cupy", False: "numpy"}[self.cupy],
         )
 
