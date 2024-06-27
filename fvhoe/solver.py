@@ -182,7 +182,6 @@ class EulerSolver(ODE):
             y_domain=self.y_domain,
             z_domain=self.z_domain,
             h=self.h,
-            p=self.p,
         )
 
         # integrator
