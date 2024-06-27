@@ -25,7 +25,9 @@ def compute_1d_smooth_extrema_detector(
     dU = second_order_central_difference(u, axis)
     d2U = second_order_central_difference(dU, axis)
     dv = 0.5 * d2U
-    dv[...] = np.where(np.abs(dv) <= eps, np.sign(dv) * eps, dv)  # avoid dividing by 0
+    dv[...] = np.where(
+        np.abs(dv) <= eps, np.where(dv >= 0, eps, -eps), dv
+    )  # avoid dividing by 0
 
     # left detector
     vL = dU[gv(cut=(0, 2))] - dU[gv(cut=(1, 1))]
@@ -86,9 +88,11 @@ def compute_3d_smooth_extrema_detector(
             out (NamedArray) : first neighbor minimum of alpha along each specified direction (shorter by 6 elements)
     """
     gv = partial(get_view, ndim=u.ndim)
-    alpha_xy = compute_2d_smooth_extrema_detector(u[gv(cut=(3, 3), axis=3)], eps=eps)
+    alpha_xy = compute_2d_smooth_extrema_detector(
+        u[(gv(cut=(3, 3), axis=3))], dims="xy", eps=eps
+    )
     alpha_z = compute_1d_smooth_extrema_detector(
-        u[gv(cut=(3, 3), axis=1)][gv(cut=(3, 3), axis=2)], eps=eps
+        u[gv(cut=(3, 3), axis=1)][gv(cut=(3, 3), axis=2)], dim="z", eps=eps
     )
     out = np.minimum(alpha_xy, alpha_z)
     return out

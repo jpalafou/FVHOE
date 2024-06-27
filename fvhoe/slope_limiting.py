@@ -153,6 +153,7 @@ def detect_troubled_cells(
 
     # NAD for each variable
     u_range = np.max(u, axis=axes, keepdims=True) - np.min(u, axis=axes, keepdims=True)
+    u_range = u.__class__(u_range, u.variable_names)
     tolerance_per_var = NAD_tolerance * u_range
     lower_NAD_difference = u_candidate_inner - m
     upper_NAD_difference = M - u_candidate_inner
