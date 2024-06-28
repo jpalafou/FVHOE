@@ -124,6 +124,23 @@ def conservative_interpolation(
                     + -1 * fvarr[gv(cut=(3, 1))]
                     + 0 * fvarr[gv(cut=(4, 0))]
                 ) / 24
+        case 4:
+            if pos == "l":
+                out = (
+                    -3 * fvarr[gv(cut=(0, 4))]
+                    + 27 * fvarr[gv(cut=(1, 3))]
+                    + 47 * fvarr[gv(cut=(2, 2))]
+                    + -13 * fvarr[gv(cut=(3, 1))]
+                    + 2 * fvarr[gv(cut=(4, 0))]
+                ) / 60
+            elif pos == "c":
+                out = (
+                    9 * fvarr[gv(cut=(0, 4))]
+                    + -116 * fvarr[gv(cut=(1, 3))]
+                    + 2134 * fvarr[gv(cut=(2, 2))]
+                    + -116 * fvarr[gv(cut=(3, 1))]
+                    + 9 * fvarr[gv(cut=(4, 0))]
+                ) / 1920
         case 7:
             if pos == "l":
                 out = (
@@ -186,6 +203,14 @@ def transverse_reconstruction(u: np.ndarray, p: int, axis: int) -> np.ndarray:
                 + 1 * u[gv(cut=(3, 1))]
                 + 0 * u[gv(cut=(4, 0))]
             ) / 24
+        case 4:
+            out = (
+                -17 * u[gv(cut=(0, 4))]
+                + 308 * u[gv(cut=(1, 3))]
+                + 5178 * u[gv(cut=(2, 2))]
+                + 308 * u[gv(cut=(3, 1))]
+                + -17 * u[gv(cut=(4, 0))]
+            ) / 5760
         case 7:
             out = (
                 0 * u[gv(cut=(0, 8))]
