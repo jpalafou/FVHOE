@@ -1,4 +1,5 @@
 from matplotlib import cm
+from matplotlib.colors import LogNorm
 import numpy as np
 from typing import Tuple
 
@@ -164,6 +165,11 @@ def plot_2d_slice(
     cmap: str = "GnBu_r",
     trouble_color: str = "red",
     verbose: bool = True,
+    log: bool = False,
+    log_vmin: float = None,
+    log_vmax: float = None,
+    contour: bool = False,
+    levels: int = 30,
     **kwargs,
 ) -> None:
     """
@@ -181,6 +187,11 @@ def plot_2d_slice(
         cmap (str) : colormap
         trouble_color (str) : color for trouble
         verbose (bool) : print the exact used coordinates
+        log (bool) : whether to use a log-scale color bar
+        log_vmin (float) : minimum value for log-scale color bar
+        log_vmax (float) : maximum value for log-scale color bar
+        contour (bool) : whether to plot contour lines
+        levels (int, list, or array_like) : number of contour levels
         **kwargs : keyword arguments for matplotlib.pyplot.imshow
     returns:
         None : modifies the input Axes object
@@ -200,14 +211,17 @@ def plot_2d_slice(
     if x is None and y is None:
         slices = (slice(None), slice(None), k)
         horizontal_axis, vertical_axis = "x", "y"
+        x_for_plotting, y_for_plotting = xarr, yarr
         limits = (xarr[0], xarr[-1], yarr[0], yarr[-1])
     elif y is None and z is None:
         slices = (i, slice(None), slice(None))
         horizontal_axis, vertical_axis = "y", "z"
+        x_for_plotting, y_for_plotting = yarr, zarr
         limits = (yarr[0], yarr[-1], zarr[0], zarr[-1])
     elif x is None and z is None:
         slices = (i, j, slice(None))
         horizontal_axis, vertical_axis = "x", "z"
+        x_for_plotting, y_for_plotting = xarr, zarr
         limits = (xarr[0], xarr[-1], zarr[0], zarr[-1])
     # get z data
     if param == "trouble" or overlay_trouble:
@@ -220,6 +234,9 @@ def plot_2d_slice(
         source_array = getattr(snapshots[n]["w"], param)
     z_for_plotting = source_array[slices]
     # rotate
+    X, Y = np.meshgrid(x_for_plotting, y_for_plotting, indexing="ij")
+    X = np.rot90(X, 1)
+    Y = np.rot90(Y, 1)
     z_for_plotting = np.rot90(z_for_plotting, 1)
     if overlay_trouble:
         trouble_for_plotting = np.rot90(trouble_for_plotting, 1)
@@ -233,5 +250,19 @@ def plot_2d_slice(
         print(xyzt_summary(xarr, yarr, zarr, xn, yn, zn, tn))
         print(f"{horizontal_axis=}, {vertical_axis=}")
     # return plot
-    out = ax.imshow(z_for_plotting, extent=limits, cmap=colormap, **kwargs)
+    if contour:
+        if isinstance(levels, int):
+            contour_levels = np.linspace(
+                z_for_plotting.min(), z_for_plotting.max(), levels
+            )
+        elif isinstance(levels, list) or isinstance(levels, np.ndarray):
+            contour_levels = np.asarray(levels)
+        else:
+            raise BaseException("levels must be an integer, list, or numpy array")
+        out = ax.contour(X, Y, z_for_plotting, levels=contour_levels, **kwargs)
+    else:
+        norm = LogNorm(vmin=log_vmin, vmax=log_vmax) if log else None
+        out = ax.imshow(
+            z_for_plotting, norm=norm, extent=limits, cmap=colormap, **kwargs
+        )
     return out
