@@ -114,22 +114,17 @@ def detect_troubled_cells(
     # define views in specified dimensions
     footprint_shape = [1, 1, 1, 1]
     interior_slice = [slice(None), slice(None), slice(None), slice(None)]
-    axes = []
     if "x" in dims:
         footprint_shape[1] = 3
         interior_slice[1] = slice(3, -3)
-        axes.append(1)
     if "y" in dims:
         footprint_shape[2] = 3
         interior_slice[2] = slice(3, -3)
-        axes.append(2)
     if "z" in dims:
         footprint_shape[3] = 3
         interior_slice[3] = slice(3, -3)
-        axes.append(3)
     footprint_shape = tuple(footprint_shape)
     interior_slice = tuple(interior_slice)
-    axes = tuple(set(axes))
 
     # take minimum of neighbors
     footprint = np.ones(footprint_shape)
@@ -152,7 +147,9 @@ def detect_troubled_cells(
     u_candidate_inner = u_candidate[interior_slice]
 
     # NAD for each variable
-    u_range = np.max(u, axis=axes, keepdims=True) - np.min(u, axis=axes, keepdims=True)
+    u_range = np.max(u, axis=(1, 2, 3), keepdims=True) - np.min(
+        u, axis=(1, 2, 3), keepdims=True
+    )
     u_range = u.__class__(u_range, u.variable_names)
     tolerance_per_var = NAD_tolerance * u_range
     lower_NAD_difference = u_candidate_inner - m
@@ -220,44 +217,196 @@ def detect_troubled_cells(
     return trouble, NAD_violation_magnitude
 
 
-def broadcase_troubled_cells_to_troubled_interfaces(
-    trouble: np.ndarray, xp: str = "numpy"
+def broadcast_to_troubled_interfaces(
+    trouble: np.ndarray,
+    dims: str = None,
+    convex: bool = False,
+    periodic_x: bool = False,
+    periodic_y: bool = False,
+    periodic_z: bool = False,
+    xp: str = "numpy",
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
     args:
         trouble (array_like) : array of troubled cells indicated by 1, shape (nx, ny, nz)
+        dims (str) : dimensions to broadcast troubled cells
+        convex (bool) : convex broadcast
+        periodic_x (bool) : periodic boundary conditions in x
+        periodic_y (bool) : periodic boundary conditions in y
+        periodic_z (bool) : periodic boundary conditions in z
         xp (str) : 'numpy' or 'cupy'
     returns:
         troubled_x_interfaces (array_like) : array of troubled x interfaces indicated by 1, shape (1, nx + 1, ny, nz)
         troubled_y_interfaces (array_like) : array of troubled y interfaces indicated by 1, shape (1, nx, ny + 1, nz)
         troubled_z_interfaces (array_like) : array of troubled z interfaces indicated by 1, shape (1, nx, ny, nz + 1)
     """
-    troubled_x_interfaces = np.zeros(
-        (trouble.shape[0] + 1, trouble.shape[1], trouble.shape[2])
-    )
-    troubled_y_interfaces = np.zeros(
-        (trouble.shape[0], trouble.shape[1] + 1, trouble.shape[2])
-    )
-    troubled_z_interfaces = np.zeros(
-        (trouble.shape[0], trouble.shape[1], trouble.shape[2] + 1)
-    )
-    if xp == "cupy" and CUPY_AVAILABLE:
+    # allocate troubled interface arrays
+    nx, ny, nz = trouble.shape
+    troubled_x_interfaces = np.zeros((nx + 1, ny, nz))
+    troubled_y_interfaces = np.zeros((nx, ny + 1, nz))
+    troubled_z_interfaces = np.zeros((nx, ny, nz + 1))
+    if convex:
+        xdim, ydim, zdim = "x" in dims, "y" in dims, "z" in dims
+        nx_alloc = trouble.shape[0] + 4 if xdim else 1
+        ny_alloc = trouble.shape[1] + 4 if ydim else 1
+        nz_alloc = trouble.shape[2] + 4 if zdim else 1
+        alloc_trouble = np.zeros((nx_alloc, ny_alloc, nz_alloc))
+        slices = [
+            slice(2, -2) if xdim else slice(None),
+            slice(2, -2) if ydim else slice(None),
+            slice(2, -2) if zdim else slice(None),
+        ]
+        alloc_trouble[tuple(slices)] = trouble
+        # apply periodic boundary conditions
+        if periodic_x and xdim:
+            alloc_trouble[:2, :, :] = trouble[-4:-2, :, :]
+            alloc_trouble[-2:, :, :] = trouble[2:4, :, :]
+        if periodic_y and ydim:
+            alloc_trouble[:, :2, :] = trouble[:, -4:-2, :]
+            alloc_trouble[:, -2:, :] = trouble[:, 2:4, :]
+        if periodic_z and zdim:
+            alloc_trouble[:, :, :2] = trouble[:, :, -4:-2]
+            alloc_trouble[:, :, -2:] = trouble[:, :, 2:4]
+    # convert to cupy if necessary
+    if xp == "cupy":
         troubled_x_interfaces = cp.asarray(troubled_x_interfaces)
         troubled_y_interfaces = cp.asarray(troubled_y_interfaces)
         troubled_z_interfaces = cp.asarray(troubled_z_interfaces)
-    troubled_x_interfaces[1:, :, :] = trouble
-    troubled_x_interfaces[:-1, :, :] = np.maximum(
-        troubled_x_interfaces[:-1, :, :], trouble
-    )
-    troubled_y_interfaces[:, 1:, :] = trouble
-    troubled_y_interfaces[:, :-1, :] = np.maximum(
-        troubled_y_interfaces[:, :-1, :], trouble
-    )
-    troubled_z_interfaces[:, :, 1:] = trouble
-    troubled_z_interfaces[:, :, :-1] = np.maximum(
-        troubled_z_interfaces[:, :, :-1], trouble
-    )
+        if convex:
+            alloc_trouble = cp.asarray(alloc_trouble)
+    # broadcast troubled cells to interfaces
+    if convex:
+        # convex broadcast
+        ndim = sum([xdim, ydim, zdim])
+        slices = [0, 0, 0]
+        if ndim == 1:
+            slices[{"x": 0, "y": 1, "z": 2}[dims]] = slice(None)
+            alloc_trouble_1d = alloc_trouble[tuple(slices)]
+            convex_troubled_x_interfaces = convex_1d_broadcast_to_troubled_interfaces(
+                alloc_trouble_1d
+            )
+            if dims == "x":
+                troubled_x_interfaces[...] = convex_troubled_x_interfaces.reshape(
+                    -1, 1, 1
+                )
+            elif dims == "y":
+                troubled_y_interfaces[...] = convex_troubled_x_interfaces.reshape(
+                    1, -1, 1
+                )
+            elif dims == "z":
+                troubled_z_interfaces[...] = convex_troubled_x_interfaces.reshape(
+                    1, 1, -1
+                )
+            else:
+                raise ValueError(f"Invalid dims specified: {dims}")
+        elif ndim == 2:
+            slices[{"x": 0, "y": 1, "z": 2}[dims[0]]] = slice(None)
+            slices[{"x": 0, "y": 1, "z": 2}[dims[1]]] = slice(None)
+            alloc_trouble_2d = alloc_trouble[tuple(slices)]
+            convex_troubled_x_interfaces, convex_troubled_y_interfaces = (
+                convex_2d_broadcast_to_troubled_interfaces(alloc_trouble_2d)
+            )
+            if dims in ["xy", "yx"]:
+                troubled_x_interfaces[...] = convex_troubled_x_interfaces.reshape(
+                    nx + 1, ny, 1
+                )
+                troubled_y_interfaces[...] = convex_troubled_y_interfaces.reshape(
+                    nx, ny + 1, 1
+                )
+            elif dims in ["yz", "zy"]:
+                troubled_y_interfaces[...] = convex_troubled_x_interfaces.reshape(
+                    1, ny + 1, nz
+                )
+                troubled_z_interfaces[...] = convex_troubled_y_interfaces.reshape(
+                    1, ny, nz + 1
+                )
+            elif dims in ["xz", "zx"]:
+                troubled_x_interfaces[...] = convex_troubled_x_interfaces.reshape(
+                    nx + 1, 1, nz
+                )
+                troubled_z_interfaces[...] = convex_troubled_y_interfaces.reshape(
+                    nx, 1, nz + 1
+                )
+            else:
+                raise ValueError(f"Invalid dims specified: {dims}")
+        elif ndim == 3:
+            raise NotImplementedError("3D convex broadcast not implemented")
+    else:
+        # simple broadcast
+        if "x" in dims:
+            troubled_x_interfaces[1:, :, :] = trouble
+            troubled_x_interfaces[:-1, :, :] = np.maximum(
+                troubled_x_interfaces[:-1, :, :], trouble
+            )
+        if "y" in dims:
+            troubled_y_interfaces[:, 1:, :] = trouble
+            troubled_y_interfaces[:, :-1, :] = np.maximum(
+                troubled_y_interfaces[:, :-1, :], trouble
+            )
+        if "z" in dims:
+            troubled_z_interfaces[:, :, 1:] = trouble
+            troubled_z_interfaces[:, :, :-1] = np.maximum(
+                troubled_z_interfaces[:, :, :-1], trouble
+            )
     troubled_x_interfaces = troubled_x_interfaces[np.newaxis, ...]
     troubled_y_interfaces = troubled_y_interfaces[np.newaxis, ...]
     troubled_z_interfaces = troubled_z_interfaces[np.newaxis, ...]
     return troubled_x_interfaces, troubled_y_interfaces, troubled_z_interfaces
+
+
+def convex_1d_broadcast_to_troubled_interfaces(trouble: np.ndarray):
+    """
+    args:
+        trouble (array_like) : array of troubled cells indicated by 1, shape (nx + 4,)
+    returns:
+        troubled_interfaces (array_like) : array of troubled interfaces indicated by 1, shape (nx + 1,)
+    """
+    theta = trouble.copy()
+
+    # First neighbors
+    theta[:-1] = np.maximum(0.75 * trouble[1:], theta[:-1])
+    theta[1:] = np.maximum(0.75 * trouble[:-1], theta[1:])
+
+    # Second neighbors
+    theta[:-1] = np.maximum(0.25 * (theta[1:] > 0), theta[:-1])
+    theta[1:] = np.maximum(0.25 * (theta[:-1] > 0), theta[1:])
+
+    # flag affected faces with theta
+    troubled_interfaces = np.maximum(theta[1:-2], theta[2:-1])
+
+    return troubled_interfaces
+
+
+def convex_2d_broadcast_to_troubled_interfaces(trouble: np.ndarray):
+    """
+    args:
+        trouble (array_like) : array of troubled cells indicated by 1, shape (nx + 4, ny + 4)
+    returns:
+        troubled_x_interfaces (array_like) : array of troubled x interfaces indicated by 1, shape (nx + 1, ny)
+        troubled_y_interfaces (array_like) : array of troubled y interfaces indicated by 1, shape (nx, ny + 1)
+    """
+    theta = trouble.copy()
+
+    # First neighbors
+    theta[:, :-1] = np.maximum(0.75 * trouble[:, 1:], theta[:, :-1])
+    theta[:, 1:] = np.maximum(0.75 * trouble[:, :-1], theta[:, 1:])
+    theta[:-1, :] = np.maximum(0.75 * trouble[1:, :], theta[:-1, :])
+    theta[1:, :] = np.maximum(0.75 * trouble[:-1, :], theta[1:, :])
+
+    # Second neighbors
+    theta[:-1, :-1] = np.maximum(0.5 * trouble[1:, 1:], theta[:-1, :-1])
+    theta[:-1, 1:] = np.maximum(0.5 * trouble[1:, :-1], theta[:-1, 1:])
+    theta[1:, :-1] = np.maximum(0.5 * trouble[:-1, 1:], theta[1:, :-1])
+    theta[1:, 1:] = np.maximum(0.5 * trouble[:-1, :-1], theta[1:, 1:])
+
+    # Third neighbors
+    theta[:, :-1] = np.maximum(0.25 * (theta[:, 1:] > 0), theta[:, :-1])
+    theta[:, 1:] = np.maximum(0.25 * (theta[:, :-1] > 0), theta[:, 1:])
+    theta[:-1, :] = np.maximum(0.25 * (theta[1:, :] > 0), theta[:-1, :])
+    theta[1:, :] = np.maximum(0.25 * (theta[:-1, :] > 0), theta[1:, :])
+
+    # flag affected faces with theta
+    troubled_x_interfaces = np.maximum(theta[2:-1, 2:-2], theta[1:-2, 2:-2])
+    troubled_y_interfaces = np.maximum(theta[2:-2, 2:-1], theta[2:-2, 1:-2])
+
+    return troubled_x_interfaces, troubled_y_interfaces

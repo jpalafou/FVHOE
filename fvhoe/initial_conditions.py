@@ -230,7 +230,11 @@ def shock_tube_2d(
     """
     if len(dims) != 2:
         raise ValueError("dims must contain exactly 2 dimensions")
-    if dims[0] not in ["x", "y", "z"] or dims[1] not in ["x", "y", "z"]:
+    if (
+        dims[0] not in ["x", "y", "z"]
+        or dims[1] not in ["x", "y", "z"]
+        or dims[0] == dims[1]
+    ):
         raise ValueError("dims must be 'xy', 'xz', or 'yz'")
     out = NamedNumpyArray(np.asarray([np.empty_like(x)] * 5), primitive_names)
     xc, yc, zc = x - center[0], y - center[1], z - center[2]
@@ -238,7 +242,7 @@ def shock_tube_2d(
     rsq += np.square(xc) if "x" in dims else 0
     rsq += np.square(yc) if "y" in dims else 0
     rsq += np.square(zc) if "z" in dims else 0
-    inside_blast = rsq < radius**2
+    inside_blast = rsq <= radius**2
     out.rho = np.where(inside_blast, rho_in_out[0], rho_in_out[1])
     out.vx = 0
     out.vy = 0

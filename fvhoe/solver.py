@@ -13,7 +13,7 @@ from fvhoe.named_array import NamedCupyArray, NamedNumpyArray
 from fvhoe.ode import ODE
 from fvhoe.riemann_solvers import advection_upwind, hllc, llf
 from fvhoe.slope_limiting import (
-    broadcase_troubled_cells_to_troubled_interfaces,
+    broadcast_to_troubled_interfaces,
     detect_troubled_cells,
     MUSCL_interpolations,
 )
@@ -53,6 +53,7 @@ class EulerSolver(ODE):
         bc: BoundaryCondition = None,
         riemann_solver: str = "HLLC",
         conservative_ic: bool = False,
+        fv_ic: bool = False,
         fixed_primitive_variables: Iterable = None,
         a_posteriori_slope_limiting: bool = False,
         slope_limiter: str = "minmod",
@@ -62,6 +63,7 @@ class EulerSolver(ODE):
         PAD: dict = None,
         SED: bool = True,
         SED_tolerance: float = 1e-10,
+        convex: bool = False,
         density_floor: bool = False,
         pressure_floor: bool = False,
         rho_P_sound_speed_floor: bool = False,
@@ -103,6 +105,7 @@ class EulerSolver(ODE):
                 "llf" : simple riemann solver for Euler equations
                 "hllc" : advanced riemann solver for Euler equations
             conservative_ic (bool) : indicates that w0 returns conservative variables if true
+            fv_ic (bool) : indicates that w0 returns finite volume averages if true
             fixed_primitive_variables (Iterable) : series of primitive variables to keep fixed to their initial value
             a_posteriori_slope_limiting (bool) : whether to apply a postreiori slope limiting
             slope_limiter (str) : slope limiter code, "minmod", "moncen", None
@@ -112,6 +115,7 @@ class EulerSolver(ODE):
             PAD (dict) : primitive variable limits for slope limiting
             SED (bool) : whether to ignore NAD trouble where smooth extrema are detected
             SED_tolerance (float) : tolerance for avoiding dividing by 0 in smooth extrema detection
+            convex (bool) : whether to apply convex slope limiting
             density_floor (bool) : whether to apply a density floor
             pressure_floor (bool) : whether to apply a pressure floor
             rho_P_sound_speed_floor (bool) : whether to apply a pressure and density floor in the sound speed function
@@ -204,8 +208,12 @@ class EulerSolver(ODE):
             def u0(x, y, z):
                 return compute_conservatives(w0(x, y, z), gamma=self.gamma)
 
-        u0_fv = fv_average(f=u0, x=self.X, y=self.Y, z=self.Z, h=self.h, p=self.p)
+        if fv_ic:
+            u0_fv = u0(self.X, self.Y, self.Z)
+        else:
+            u0_fv = fv_average(f=u0, x=self.X, y=self.Y, z=self.Z, h=self.h, p=self.p)
         u0_fv = self.NamedArray(u0_fv, u0_fv.variable_names)
+
         super().__init__(u0_fv, progress_bar=progress_bar)
 
         # fixed velocity
@@ -233,12 +241,15 @@ class EulerSolver(ODE):
                 self.PAD[var] = defaults_limits[var]
         self.SED = SED
         self.SED_tolerance = SED_tolerance
-        self.density_floor = density_floor or all_floors
-        self.pressure_floor = pressure_floor or all_floors
-        self.rho_P_sound_speed_floor = rho_P_sound_speed_floor or all_floors
+        self.convex = convex
         self.trouble = np.zeros_like(u0_fv[0])
         self.NAD_violation_magnitude = np.zeros_like(u0_fv[0])
         self.trouble_counter = 1
+
+        # floors
+        self.density_floor = density_floor or all_floors
+        self.pressure_floor = pressure_floor or all_floors
+        self.rho_P_sound_speed_floor = rho_P_sound_speed_floor or all_floors
 
         # plotting functions
         self.plot_1d_slice = lambda *args, **kwargs: plot_1d_slice(
@@ -521,14 +532,19 @@ class EulerSolver(ODE):
             p=(int(self.p[0] > 0), int(self.p[1] > 0), int(self.p[2] > 0)),
             slope_limiter=self.slope_limiter,
         )
-        troubled_x, troubled_y, troubled_z = (
-            broadcase_troubled_cells_to_troubled_interfaces(
-                troubled_cells, xp={True: "cupy", False: "numpy"}[self.cupy]
-            )
+        troubled_x, troubled_y, troubled_z = broadcast_to_troubled_interfaces(
+            troubled_cells,
+            dims=self.dims,
+            convex=self.convex,
+            periodic_x=self.bc.x == ("periodic", "periodic"),
+            periodic_y=self.bc.y == ("periodic", "periodic"),
+            periodic_z=self.bc.z == ("periodic", "periodic"),
+            xp={True: "cupy", False: "numpy"}[self.cupy],
         )
-        F[...] = np.where(troubled_x, Fl, F)
-        G[...] = np.where(troubled_y, Gl, G)
-        H[...] = np.where(troubled_z, Hl, H)
+
+        F[...] = (1 - troubled_x) * F + troubled_x * Fl
+        G[...] = (1 - troubled_y) * G + troubled_y * Gl
+        H[...] = (1 - troubled_z) * H + troubled_z * Hl
 
     def euler_equation(
         self, F: NamedNumpyArray, G: NamedNumpyArray, H: NamedNumpyArray
