@@ -166,6 +166,31 @@ def conservative_interpolation(
                     + (-5 / 7168) * fvarr[gv(cut=(7, 1))]
                     + 0 * fvarr[gv(cut=(8, 0))]
                 )
+        case 8:
+            if pos == "l":
+                out = (
+                    (-1 / 504) * fvarr[gv(cut=(0, 8))]
+                    + (11 / 504) * fvarr[gv(cut=(1, 7))]
+                    + (-61 / 504) * fvarr[gv(cut=(2, 6))]
+                    + (275 / 504) * fvarr[gv(cut=(3, 5))]
+                    + (1879 / 2520) * fvarr[gv(cut=(4, 4))]
+                    + (-641 / 2520) * fvarr[gv(cut=(5, 3))]
+                    + (199 / 2520) * fvarr[gv(cut=(6, 2))]
+                    + (-41 / 2520) * fvarr[gv(cut=(7, 1))]
+                    + (1 / 630) * fvarr[gv(cut=(8, 0))]
+                )
+            elif pos == "c":
+                out = (
+                    (35 / 294912) * fvarr[gv(cut=(0, 8))]
+                    + (-425 / 258048) * fvarr[gv(cut=(1, 7))]
+                    + (31471 / 2580480) * fvarr[gv(cut=(2, 6))]
+                    + (-100027 / 1290240) * fvarr[gv(cut=(3, 5))]
+                    + (5851067 / 5160960) * fvarr[gv(cut=(4, 4))]
+                    + (-100027 / 1290240) * fvarr[gv(cut=(5, 3))]
+                    + (31471 / 2580480) * fvarr[gv(cut=(6, 2))]
+                    + (-425 / 258048) * fvarr[gv(cut=(7, 1))]
+                    + (35 / 294912) * fvarr[gv(cut=(8, 0))]
+                )
         case _:
             raise NotImplementedError(f"{p=}")
 
@@ -222,6 +247,18 @@ def transverse_reconstruction(u: np.ndarray, p: int, axis: int) -> np.ndarray:
                 + (-281 / 53760) * u[gv(cut=(6, 2))]
                 + (367 / 967680) * u[gv(cut=(7, 1))]
                 + 0 * u[gv(cut=(8, 0))]
+            )
+        case 8:
+            out = (
+                (-27859 / 464486400) * u[gv(cut=(0, 8))]
+                + (49879 / 58060800) * u[gv(cut=(1, 7))]
+                + (-801973 / 116121600) * u[gv(cut=(2, 6))]
+                + (3629953 / 58060800) * u[gv(cut=(3, 5))]
+                + (41208059 / 46448640) * u[gv(cut=(4, 4))]
+                + (3629953 / 58060800) * u[gv(cut=(5, 3))]
+                + (-801973 / 116121600) * u[gv(cut=(6, 2))]
+                + (49879 / 58060800) * u[gv(cut=(7, 1))]
+                + (-27859 / 464486400) * u[gv(cut=(8, 0))]
             )
         case _:
             raise NotImplementedError(f"{p=}")

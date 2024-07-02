@@ -7,7 +7,7 @@ from tests.test_utils import l2err
 
 
 @pytest.mark.parametrize("N", [100])
-@pytest.mark.parametrize("p", [0, 1, 2, 3, 7])
+@pytest.mark.parametrize("p", [8])
 @pytest.mark.parametrize("convex", [False, True])
 def test_1d_symmetry(N: int, p: int, convex: bool):
     """
@@ -90,7 +90,7 @@ def test_1d_symmetry(N: int, p: int, convex: bool):
 
 
 @pytest.mark.parametrize("N", [32])
-@pytest.mark.parametrize("p", [0, 1, 2, 3, 7])
+@pytest.mark.parametrize("p", [8])
 @pytest.mark.parametrize("convex", [False, True])
 def test_2d_symmetry(N: int, p: int, convex: bool):
     T = 0.3

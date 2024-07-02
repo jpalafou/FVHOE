@@ -268,7 +268,7 @@ def broadcast_to_troubled_interfaces(
             alloc_trouble[:, :, :2] = trouble[:, :, -4:-2]
             alloc_trouble[:, :, -2:] = trouble[:, :, 2:4]
     # convert to cupy if necessary
-    if xp == "cupy":
+    if xp == "cupy" and CUPY_AVAILABLE:
         troubled_x_interfaces = cp.asarray(troubled_x_interfaces)
         troubled_y_interfaces = cp.asarray(troubled_y_interfaces)
         troubled_z_interfaces = cp.asarray(troubled_z_interfaces)
