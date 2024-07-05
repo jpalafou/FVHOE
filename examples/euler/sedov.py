@@ -59,8 +59,6 @@ def sedovana(gamma: float = 1.4, dim: int = 1, n1: int = 1000, n2: int = 1000):
     a3 = n / (2 * (g - 1) + n)
     a4 = a1 * (n + 2) / (2 - g)
     a5 = 2 / (g - 2)
-    a6 = g / (2 * (g - 1) + n)
-    a7 = a1 * (2 + n * (g - 1)) / (n * (2 - g))
 
     r1 = (
         ((n + 2) * (g + 1) / 4 * v) ** (-2 / (2 + n))

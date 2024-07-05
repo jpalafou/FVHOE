@@ -101,6 +101,14 @@ def set_ic(x, ic_type="sod test"):
                 d[i] = 0.1
                 v[i] = 0
                 p[i] = 1
+    elif ic_type == "sedov":
+        d[...] = 1
+        v[...] = 0
+        p[...] = 1e-5
+        N = len(x)
+        Pmax = 0.5 * N * (gamma - 1)
+        p[N // 2] = Pmax
+        p[N // 2 + 1] = Pmax
 
     else:
         print("Unknown IC type=", ic_type)

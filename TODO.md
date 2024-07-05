@@ -1,25 +1,13 @@
+fix bug in examples/euler/slotted_disk.ipynb
+
+rename 'filename' to 'foldername' or something like that
+
+option for integrator to load from filename
+
+higher-dimensional sedov examples
+
 truly reflective boundary condition
 
 "ic" boundary condition
 
-rename 'filename' to 'foldername' or something like that
-
-convex blending
-
-compare contours to WENO paper
-
-pre-allocate arrays
-
-sd comparison
-    advection equation
-        2D
-            slotted disk
-    Euler equations
-        1D
-            sod shock tube (Done)
-            Woodward and Colella interacting blast waves test (Done)
-            Shu and Osher shock tube test (Done)
-        2D
-            Non-linear sound wave test
-            Kevin–Helmholtz instability (Done)
-            Double Mach reflection
+Should I pre-allocate arrays ?
