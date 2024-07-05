@@ -586,12 +586,12 @@ class EulerSolver(ODE):
         u_cell_centers = interpolate_cell_centers(u_bc, p=p)
         w_cell_centers = compute_primitives(u_cell_centers, gamma=self.gamma)
         if self.fixed_primitive_variables is not None and self.t > 0:
-            w0_cell_centers = self.w0_cell_centers_cache.get(gw, None)
+            w0_cell_centers = self.w0_cell_centers_cache.get(f"{gw=}, {p=}", None)
             if w0_cell_centers is None:
-                u0_bc = self.bc.apply(self.u0, gw=gw, t=self.t)
+                u0_bc = self.bc.apply(self.u0, gw=gw, t=0)
                 u0_cell_centers = interpolate_cell_centers(u0_bc, p=p)
                 w0_cell_centers = compute_primitives(u0_cell_centers, gamma=self.gamma)
-                self.w0_cell_centers_cache[gw] = w0_cell_centers
+                self.w0_cell_centers_cache[f"{gw=}, {p=}"] = w0_cell_centers
             for var in self.fixed_primitive_variables:
                 setattr(w_cell_centers, var, getattr(w0_cell_centers, var))
         if fv_average:
@@ -656,7 +656,7 @@ class EulerSolver(ODE):
                     gw=(
                         int(np.ceil(self.p[0] / 2)),
                         int(np.ceil(self.p[1] / 2)),
-                        int(np.ceil(self.p[1] / 2)),
+                        int(np.ceil(self.p[2] / 2)),
                     ),
                     t=self.t,
                 )

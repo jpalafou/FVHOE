@@ -108,9 +108,9 @@ def square(
 def slotted_disk(
     x: np.ndarray,
     y: np.ndarray,
+    z: np.ndarray = None,
     rho_min_max: Tuple[float, float] = (1, 2),
     P: float = 1,
-    **kwargs,
 ) -> NamedNumpyArray:
     """
     slotted disk revolving around (0.5, 0.5) in the x-y plane
@@ -127,9 +127,8 @@ def slotted_disk(
     rsq = np.square(xc) + np.square(y - 0.75)
     inside_disk = rsq < 0.15**2
     inside_disk &= np.logical_not(np.logical_and(np.abs(xc) < 0.025, y < 0.85))
-    rho = np.where(inside_disk, rho_min_max[1], rho_min_max[0])
     out = empty_primitive(inside_disk.shape)
-    out.rho = rho
+    out.rho = np.where(inside_disk, rho_min_max[1], rho_min_max[0])
     out.P = P
     out.vx = -yc
     out.vy = xc
