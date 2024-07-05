@@ -1,26 +1,27 @@
 from fvhoe.boundary_conditions import BoundaryCondition
-from fvhoe.initial_conditions import shock_tube_1d
+from fvhoe.initial_conditions import shock_1d
 from fvhoe.solver import EulerSolver
 import numpy as np
-import pickle
 
 
 def test_save_load():
     # set up a simple 1D Euler problem
     N = 60
     p = 0
-    solver = EulerSolver(
-        w0=shock_tube_1d,
+    solver_config = dict(
+        w0=shock_1d,
         nx=N,
         px=p,
         riemann_solver="llf",
         bc=BoundaryCondition(x="free"),
     )
+    solver = EulerSolver(**solver_config)
 
     # solve and save snapshots
-    solver.euler(0.245, filename="test", overwrite=True)
+    solver.euler(0.245, save=True, snapshot_dir="snapshots/test", overwrite=True)
 
     # load snapshots
-    snapshots = pickle.load(open("snapshots/test/arrs.pkl", "rb"))
+    solver2 = EulerSolver(**solver_config)
+    solver2.euler(0.245, save=True, snapshot_dir="snapshots/test")
 
-    assert np.all(solver.snapshots[-1]["w"] == snapshots[-1]["w"])
+    assert np.all(solver.snapshots[-1]["w"] == solver2.snapshots[-1]["w"])

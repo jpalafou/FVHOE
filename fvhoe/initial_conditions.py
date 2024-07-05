@@ -171,6 +171,7 @@ def shock_1d(
     out.vy = v if dim == "y" else 0
     out.vz = v if dim == "z" else 0
     out.P = np.where(r < position, P_left_right[0], P_left_right[1])
+    return out
 
 
 def double_shock_1d(
@@ -205,11 +206,11 @@ def double_shock_1d(
         )
 
     out = empty_primitive(r.shape)
-    out.rho = (f(r, rhos),)
-    out.P = (f(r, Ps),)
-    out.vx = (f(r, vs) if dim == "x" else 0,)
-    out.vy = (f(r, vs) if dim == "y" else 0,)
-    out.vz = (f(r, vs) if dim == "z" else 0,)
+    out.rho = f(r, rhos)
+    out.P = f(r, Ps)
+    out.vx = f(r, vs) if dim == "x" else 0
+    out.vy = f(r, vs) if dim == "y" else 0
+    out.vz = f(r, vs) if dim == "z" else 0
     return out
 
 
@@ -359,17 +360,11 @@ def shock_tube(
         # define cube coordinates in 3D
         inside_region = np.ones_like(x, dtype=bool)
         if x_cube is not None:
-            inside_region = np.logical_and(
-                inside_region, np.logical_and(x >= x_cube[0], x <= x_cube[0])
-            )
+            inside_region &= np.logical_and(x >= x_cube[0], x <= x_cube[1])
         if y_cube is not None:
-            inside_region = np.logical_and(
-                inside_region, np.logical_and(y >= y_cube[0], x <= y_cube[0])
-            )
+            inside_region &= np.logical_and(y >= y_cube[0], y <= y_cube[1])
         if z_cube is not None:
-            inside_region = np.logical_and(
-                inside_region, np.logical_and(z >= z_cube[0], x <= z_cube[0])
-            )
+            inside_region &= np.logical_and(z >= z_cube[0], z <= z_cube[1])
 
     # define initial conditions
     out = empty_primitive(x.shape)

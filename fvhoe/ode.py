@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 import numpy as np
+import os
 import time
 from tqdm import tqdm
 from typing import Any, Tuple
@@ -44,40 +45,47 @@ class ODE(ABC):
 
     def integrate(
         self,
-        stopping_time: float = None,
-        n_timesteps: int = None,
+        T: float = None,
+        n: int = None,
         exact: bool = True,
         downbeats: Any = None,
         log_every_step: bool = False,
-        save_snapshots: bool = True,
-        filename: str = None,
+        save: bool = False,
         overwrite: bool = False,
+        snapshot_dir: str = None,
     ) -> None:
         """
         args:
-            stopping_time (float) : time to simulate until. if None, n_timesteps is used and all other parameters are ignored
-            n_timesteps (int) : number of iterations to evolve if stopping_time is None. intended for small numbers of steps / debugging
-            exact (bool) : avoid overshooting the stopping time
-            downbeats (iterable[float]) : keytimes to reach exactly when exact is True. numpy.ndarray or list
+            T (float) : time to simulate until
+            n (int) : number of iterations to evolve. if defined, all other arguments are ignored
+            exact (bool) : avoid overshooting T
+            downbeats (iterable[float]) : times to reach exactly and log a snapshot, if exact is True
             log_every_step (bool) : take a snapshot at every step
-            save_snapshots (bool) : save snapshots
-            filename (str) : name of the file to save snapshots
-            overwrite (bool) : overwrite the file if it exists
+            save (bool) : save snapshots
+            overwrite (bool) : overwrite the snapshot directory if it exists
+            snapshot_dir (str) : directory to save snapshots
         """
-        predetermined_step_count = stopping_time is None
+        predetermined_step_count = T is None
 
-        # if given n_timesteps, perform a simple time evolution
+        # if given n, perform a simple time evolution
         if predetermined_step_count:
             self.snapshot()
             clock_start = time.time()
-            for _ in tqdm(range(n_timesteps)):
+            for _ in tqdm(range(n)):
                 self.take_step()
             self.execution_time = time.time() - clock_start
             self.snapshot()
             return
 
+        # if save is True, try to read snapshots
+        if save:
+            self.snapshot_dir = os.path.normpath(snapshot_dir)
+            snapshot_already_found = self.read_snapshots(overwrite)
+            if snapshot_already_found:
+                return
+
         # initialize progress bar
-        self.progress_bar_action(action="setup", stopping_time=stopping_time)
+        self.progress_bar_action(action="setup", T=T)
 
         # establish keytimes
         if downbeats is None:
@@ -85,7 +93,7 @@ class ODE(ABC):
         elif isinstance(downbeats, np.ndarray):
             downbeats = downbeats.tolist()
 
-        downbeats = sorted(set([0] + downbeats + [stopping_time]))[
+        downbeats = sorted(set([0] + downbeats + [T]))[
             1:
         ]  # get unique values and ignore 0
         target_time = downbeats.pop(0) if exact else None
@@ -95,11 +103,11 @@ class ODE(ABC):
 
         # simulation loop
         clock_start = time.time()
-        while self.t < stopping_time:
+        while self.t < T:
             self.take_step(target_time=target_time)
             self.progress_bar_action(action="update")
             # target time actions
-            if self.t == target_time or self.t >= stopping_time or log_every_step:
+            if self.t == target_time or self.t >= T or log_every_step:
                 self.snapshot()
                 if downbeats and self.t == target_time:
                     target_time = downbeats.pop(0)
@@ -108,8 +116,8 @@ class ODE(ABC):
         # clean up progress bar
         self.progress_bar_action(action="cleanup")
 
-        if save_snapshots:
-            self.filename = filename
+        # if save is True, write snapshots
+        if save:
             self.write_snapshots(overwrite)
 
     def snapshot(self):
@@ -135,22 +143,28 @@ class ODE(ABC):
         """
         pass
 
-    def progress_bar_action(self, action: str, stopping_time: float = None):
+    def progress_bar_action(self, action: str, T: float = None):
         """
         modify progress bar
         args:
             action (str) : "setup", "update", "cleanup"
-            stopping time (float) : time to simulate until
+            t (float) : time to simulate until
         """
         if self.print_progress_bar:
             if action == "setup":
                 bar_format = "{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}]"
-                self.progress_bar = tqdm(total=stopping_time, bar_format=bar_format)
+                self.progress_bar = tqdm(total=T, bar_format=bar_format)
             elif action == "update":
                 self.progress_bar.n = self.t
                 self.progress_bar.refresh()
             elif action == "cleanup":
                 self.progress_bar.close()
+
+    def read_snapshots(self):
+        """
+        read snapshots if they exist
+        """
+        pass
 
     def write_snapshots(self):
         """

@@ -20,6 +20,7 @@ from fvhoe.slope_limiting import (
 from fvhoe.visualization import plot_1d_slice, plot_2d_slice
 import json
 import os
+import shutil
 import pickle
 from typing import Iterable, Tuple
 
@@ -69,7 +70,6 @@ class EulerSolver(ODE):
         rho_P_sound_speed_floor: bool = False,
         all_floors: bool = False,
         progress_bar: bool = True,
-        snapshot_dir: str = "snapshots",
         dumpall: bool = False,
         snapshots_as_fv_averages: bool = True,
         snapshot_helper_function: callable = None,
@@ -121,7 +121,6 @@ class EulerSolver(ODE):
             rho_P_sound_speed_floor (bool) : whether to apply a pressure and density floor in the sound speed function
             all_floors (bool) : apply all floors
             progress_bar (bool) : whether to print out a progress bar
-            snapshot_dir (str) : directory to save snapshots
             dumpall (bool) : save all variables in snapshot
             snapshots_as_fv_averages (bool) : save snapshots as finite volume averages. if false, save as cell centers
             snapshot_helper_function (callable) : function to call at the end of a snapshot with self as the sole argument
@@ -176,7 +175,6 @@ class EulerSolver(ODE):
                 raise TypeError(f"Invalid Riemann solver {riemann_solver}")
 
         # data management
-        self.snapshot_dir = snapshot_dir
         self.dumpall = dumpall
         self.snapshots_as_fv_averages = snapshots_as_fv_averages
         self.snapshot_helper_function = snapshot_helper_function
@@ -695,36 +693,39 @@ class EulerSolver(ODE):
         if self.snapshot_helper_function is not None:
             self.snapshot_helper_function(self)
 
+    def read_snapshots(self, overwrite: bool) -> bool:
+        """
+        read snapshots from a pickle file
+        args:
+            overwrite (bool) : overwrite the file if it exists
+        returns:
+            out (bool) : whether a file was found
+        """
+        if os.path.exists(self.snapshot_dir) and not overwrite:
+            with open(os.path.join(self.snapshot_dir, "arrs.pkl"), "rb") as f:
+                self.snapshots = pickle.load(f)
+            print(f"Read from snapshot directory {self.snapshot_dir}")
+            return True
+        return False
+
     def write_snapshots(self, overwrite: bool):
         """
-        write snapshots to a file
+        write snapshots to a pickle file
         args:
             overwrite (bool) : overwrite the file if it exists
         """
-        base_directory = self.snapshot_dir
-        if not os.path.exists(base_directory):
-            os.makedirs(base_directory)
+        snapshot_dir = self.snapshot_dir
 
-        if self.filename is None:
-            self.filename = "EulerSolver"
-        save_path = os.path.join(base_directory, self.filename)
+        if os.path.exists(snapshot_dir) and not overwrite:
+            raise FileExistsError(f"Snapshot directory {snapshot_dir} already exists.")
+        elif os.path.exists(snapshot_dir) and overwrite:
+            # Clear out the snapshot directory
+            shutil.rmtree(snapshot_dir)
+            print(f"Clearing out snapshot directory {snapshot_dir}")
+        os.makedirs(snapshot_dir)
 
-        # Handle case where filename is already taken
-        if not overwrite:
-            counter = 1
-            original_save_path = save_path
-            while os.path.exists(save_path):
-                save_path = f"{original_save_path}_{counter}"
-                counter += 1
-
-        # Create the subdirectory
-        try:
-            os.makedirs(save_path)
-        except FileExistsError:
-            pass
-
-        # Save the snapshots
-        with open(os.path.join(save_path, "arrs.pkl"), "wb") as f:
+        # Write the snapshots to a pickle file
+        with open(os.path.join(snapshot_dir, "arrs.pkl"), "wb") as f:
             pickle.dump(self.snapshots, f)
 
         # Save the rest of the attributes (excluding functions, etc.) as a json
@@ -764,10 +765,11 @@ class EulerSolver(ODE):
                 continue
             attrs_to_save[k] = v
 
-        with open(os.path.join(save_path, "attrs.json"), "w") as f:
+        # Write the attributes to a json file
+        with open(os.path.join(snapshot_dir, "attrs.json"), "w") as f:
             json.dump(attrs_to_save, f, indent=4)
 
-        print(f"Snapshots saved to {save_path}")
+        print(f"Wrote to snapshot directory {snapshot_dir}")
 
     def rkorder(self, *args, **kwargs):
         """

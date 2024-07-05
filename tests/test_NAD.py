@@ -1,6 +1,6 @@
 from functools import partial
 from fvhoe.boundary_conditions import BoundaryCondition
-from fvhoe.initial_conditions import shock_tube_2d
+from fvhoe.initial_conditions import shock_tube
 from fvhoe.solver import EulerSolver
 import numpy as np
 import pytest
@@ -19,8 +19,16 @@ def test_NAD(N: int, p: int, NAD: float):
     """
     # initialize solvers
     solver_configs = dict(
-        w0=partial(shock_tube_2d, radius=0.05, rho_in_out=(1, 1), P_in_out=(1, 1e-5)),
-        bc=BoundaryCondition(x="free", y="free"),
+        w0=partial(
+            shock_tube,
+            mode="cube",
+            x_cube=(0, 1 / N),
+            y_cube=(0, 1 / N),
+            rho_in_out=(1, 1),
+            P_in_out=(0.25 * (N**2) * (1.4 - 1), 1e-5),
+        ),
+        gamma=1.4,
+        bc=BoundaryCondition(x=("reflective", "free"), y=("reflective", "free")),
         CFL=0.8,
         nx=N,
         ny=N,
@@ -28,8 +36,10 @@ def test_NAD(N: int, p: int, NAD: float):
         py=p,
         riemann_solver="hllc",
         a_posteriori_slope_limiting=True,
-        all_floors=True,
+        slope_limiter="minmod",
         NAD=NAD,
+        all_floors=True,
+        cupy=False,
     )
     solver_any = EulerSolver(**solver_configs, NAD_mode="any")
     solver_only = EulerSolver(
@@ -37,8 +47,8 @@ def test_NAD(N: int, p: int, NAD: float):
     )
 
     # run solvers
-    solver_any.rkorder(0.05, save_snapshots=False)
-    solver_only.rkorder(0.05, save_snapshots=False)
+    solver_any.rkorder(0.05)
+    solver_only.rkorder(0.05)
 
     # compare results
     assert np.all(solver_any.snapshots[-1]["w"] == solver_only.snapshots[-1]["w"])

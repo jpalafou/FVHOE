@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from itertools import product
 from functools import partial
 from fvhoe.fv import get_view, uniform_fv_mesh
+from fvhoe.config import conservative_names
 from fvhoe.named_array import NamedNumpyArray
 import numpy as np
 from typing import Iterable, Tuple
@@ -64,6 +65,7 @@ def set_dirichlet_bc(
             x=x,
             y=y,
             z=z,
+            t=t,
         )
         u[...] = u[gv(step=-1)]
         x, y, z = x[gv(step=-1)], y[gv(step=-1)], z[gv(step=-1)]
@@ -102,7 +104,7 @@ def set_periodic_bc(u: np.ndarray, num_ghost: int, dim: str) -> None:
     return u
 
 
-def set_reflective_bc(
+def set_symmetric_bc(
     u: np.ndarray, num_ghost: int, dim: str, pos: str, negative: bool = False
 ) -> None:
     """
@@ -126,7 +128,7 @@ def set_reflective_bc(
     pad_width = [(0, 0), (0, 0), (0, 0)]
     if pos == "l":
         u[...] = u[gv(step=-1)]
-        set_reflective_bc(u=u, num_ghost=num_ghost, dim=dim, pos="r", negative=negative)
+        set_symmetric_bc(u=u, num_ghost=num_ghost, dim=dim, pos="r", negative=negative)
         u[...] = u[gv(step=-1)]
         return u
 
@@ -203,74 +205,132 @@ def fd(
     return out
 
 
+VALID_BC_TYPES = {
+    None,
+    "dirichlet",
+    "free",
+    "periodic",
+    "special-case-double-mach-reflection-y=0",
+    "symmetric",
+    "-symmetric",
+}
+
+
 @dataclass
 class BoundaryCondition:
     """
-    boundary condition class for a NamedArray instance of shape (# vars, nx, ny, nz)
-    args:
-        NamedArray (callable): NamedArray init
-        names (Iterable) : series of names, must be valid python variable names, corresponding to indices of a NamedArray instance
-        x (tuple) : boundary condition type in x-direciton, specified at either boundary for each variable
-            ({"var1": bc_var1_left, "var2", bc_var1_left, ...}, {"var1": bc_var1_left, "var2", bc_var1_left, ...})
-            (bc_left, bc_left) : applies same bc to all variables
-            bc (str) : applies same bc to all variables on both sides
-            valid bc types : "periodic", "reflective", "dirichlet"
-        y (str) : boundary condition type in y-direciton ...
-        z (str) : boundary condition type in z-direciton ...
-        x_value (dict) : boundary condition value in x-direciton, specified at either boundary for each variable
-            ({"var1": bc_val1_left, "var2", bc_val1_left, ...}, {"var1": bc_val1_left, "var2", bc_val1_left, ...})
-            (bc_left, bc_left) : applies same bc value to all variables
-            bc (str) : applies same bc value to all variables on both sides
-        y_value (dict) : boundary condition value in y-direciton ...
-        z_value (dict) : boundary condition value in y-direciton ...
-        x_domain (Tuple[float, float]) : domain boundaries in x-direction (x1, x2)
-        y_domain (Tuple[float, float]) : domain boundaries in y-direction (y1, y2)
-        z_domain (Tuple[float, float]) : domain boundaries in z-direction (z1, z2)
-        h (Tuple[float, float, float]) : mesh spacings (hx, hy, hz)
-        p (Tuple[int, int, int]) : polynomial degrees (px, py pz)
+    Boundary condition class for a NamedArray instance of shape (# vars, nx, ny, nz).
+
+    Args:
+        names (Iterable): Series of names, must be valid Python variable names,
+                          corresponding to indices of a NamedArray instance.
+        x (Tuple[dict, dict]):
+            Boundary condition type in the x-direction, specified at either boundary
+            for each variable. Possible formats:
+                - ({"var1": bc_var1_left, ...}, {"var1": bc_var1_right, ...})
+                - (bc_left, bc_right): Applies the same BC to all variables.
+                - bc: Applies the same BC to all variables on both sides.
+            see VALID_BC_TYPES for valid boundary condition types.
+        y (Tuple[dict, dict]): Boundary condition type in the y-direction.
+        z (Tuple[dict, dict]): Boundary condition type in the z-direction.
+        x_value (Tuple[dict, dict]):
+            Boundary condition value in the x-direction, specified at either boundary
+            for each variable. Possible formats:
+                - ({"var1": bc_val1_left, ...}, {"var1": bc_val1_right, ...})
+                - (bc_left, bc_right): Applies the same BC value to all variables.
+                - bc: Applies the same BC value to all variables on both sides.
+        y_value (Tuple[dict, dict]): Boundary condition value in the y-direction.
+        z_value (Tuple[dict, dict]): Boundary condition value in the z-direction.
+        x_domain (Tuple[float, float]): Domain boundaries in the x-direction (x1, x2).
+        y_domain (Tuple[float, float]): Domain boundaries in the y-direction (y1, y2).
+        z_domain (Tuple[float, float]): Domain boundaries in the z-direction (z1, z2).
+        h (Tuple[float, float, float]): Mesh spacings (hx, hy, hz).
     """
 
     names: Iterable = ()
-    x: tuple = "periodic"
-    y: tuple = "periodic"
-    z: tuple = "periodic"
-    x_value: dict = None
-    y_value: dict = None
-    z_value: dict = None
+    x: Tuple[dict, dict] = "periodic"
+    y: Tuple[dict, dict] = "periodic"
+    z: Tuple[dict, dict] = "periodic"
+    x_value: Tuple[dict, dict] = None
+    y_value: Tuple[dict, dict] = None
+    z_value: Tuple[dict, dict] = None
     x_domain: Tuple[float, float] = (None, None)
     y_domain: Tuple[float, float] = (None, None)
     z_domain: Tuple[float, float] = (None, None)
     h: Tuple[float, float, float] = (None, None, None)
 
     def __post_init__(self):
-        if self.names in [[], (), {}]:
+        if len(self.names) == 0:
             return
 
-        for attribute_suffix, dim in product(["", "_value"], ["x", "y", "z"]):
-            attribute = f"{dim}{attribute_suffix}"
-            bc = getattr(self, attribute)
+        # configure bc types
+        for dim in {"x", "y", "z"}:
+            bc_type = getattr(self, dim)
+            if bc_type is None or isinstance(bc_type, str) or isinstance(bc_type, dict):
+                bc_type = (bc_type, bc_type)
+            bc_type = list(bc_type)  # make mutable
+            if len(bc_type) != 2:
+                raise ValueError(f"Specify one or two boundary conditions for {dim}.")
+            if (bc_type[0] == "periodic") + (bc_type[1] == "periodic") == 1:
+                raise ValueError(
+                    "Periodic boundary conditions must be specified for both boundaries."
+                )
+            for i in [0, 1]:
+                if bc_type[i] == "reflective":
+                    if set(self.names) != set(conservative_names):
+                        raise NotImplementedError(
+                            "Reflective boundary conditions are only implemented for conservative variables."
+                        )
+                    bc_type[i] = {
+                        "rho": "symmetric",
+                        "E": "symmetric",
+                        "mx": "-symmetric" if dim == "x" else "symmetric",
+                        "my": "-symmetric" if dim == "y" else "symmetric",
+                        "mz": "-symmetric" if dim == "z" else "symmetric",
+                    }
+                elif bc_type[i] is None or isinstance(bc_type[i], str):
+                    bc_type[i] = {var: bc_type[i] for var in self.names}
+                for var in self.names:
+                    if bc_type[i][var] not in VALID_BC_TYPES:
+                        raise ValueError(
+                            f"Invalid boundary condition '{bc_type[i][var]}' for variable '{var}'"
+                        )
+            setattr(self, dim, tuple(bc_type))  # return immutable
 
-            if isinstance(bc, str):
-                if bc in {"x", "y", "z"}:
-                    if bc == dim:
-                        raise BaseException("Circular boundary condition reference.")
-                    continue
-            if not isinstance(bc, tuple):
-                setattr(self, attribute, (bc, bc))
-
-            bc_l, bc_r = getattr(self, attribute)
-            bc_l = bc_l if isinstance(bc_l, dict) else {var: bc_l for var in self.names}
-            bc_r = bc_r if isinstance(bc_r, dict) else {var: bc_r for var in self.names}
-            setattr(self, attribute, (bc_l, bc_r))
-
-        for attribute_suffix, dim in product(["", "_value"], ["x", "y", "z"]):
-            attribute = f"{dim}{attribute_suffix}"
-            bc = getattr(self, attribute)
-            if isinstance(bc, str):
-                if bc in {"x", "y", "z"}:
-                    if bc == dim:
-                        raise BaseException("Circular boundary condition reference.")
-                    setattr(self, attribute, getattr(self, f"{bc}{attribute_suffix}"))
+        # configure bc values
+        for dim in {"x", "y", "z"}:
+            bc_type = getattr(self, dim)
+            bc_value = getattr(self, f"{dim}_value")
+            if (
+                bc_value is None
+                or isinstance(bc_value, int)
+                or isinstance(bc_value, float)
+                or callable(bc_value)
+                or isinstance(bc_value, dict)
+            ):
+                bc_value = (bc_value, bc_value)
+            bc_value = list(bc_value)  # make mutable
+            if len(bc_value) != 2:
+                raise ValueError(
+                    f"Specify one or two boundary condition values for {dim}."
+                )
+            for i in [0, 1]:
+                if (
+                    bc_value[i] is None
+                    or isinstance(bc_value[i], int)
+                    or isinstance(bc_value[i], float)
+                    or callable(bc_value[i])
+                ):
+                    bc_value[i] = {var: bc_value[i] for var in self.names}
+                for var in self.names:
+                    # bc_value should be None if bc_type is not "dirichlet"
+                    if bc_type[i][var] != "dirichlet":
+                        bc_value[i][var] = None
+                    elif bc_value[i][var] is None:
+                        raise ValueError(
+                            f"Boundary condition value must be specified for dirichlet boundary condition for variable '{var}'"
+                        )
+            setattr(self, f"{dim}_value", tuple(bc_value))  # return immutable
 
     def apply(
         self,
@@ -291,7 +351,7 @@ class BoundaryCondition:
                 "Boundary conditions cannot be applied to arrays with NaNs."
             )
 
-        # apply temporary boundaries of 0
+        # apply temporary boundaries of nan
         out = np.pad(
             u,
             pad_width=[(0, 0), (gw[0], gw[0]), (gw[1], gw[1]), (gw[2], gw[2])],
@@ -346,25 +406,6 @@ class BoundaryCondition:
                 continue
 
             match bc:
-                case "periodic":
-                    if ALREADY_APPLIED_PERIODIC_BOUNDARY.get(f"{var}{dim}", False):
-                        continue
-                    ubc = set_periodic_bc(
-                        u=getattr(out, var), num_ghost=num_ghost, dim=dim
-                    )
-                    ALREADY_APPLIED_PERIODIC_BOUNDARY[f"{var}{dim}"] = True
-                case "reflective":
-                    ubc = set_reflective_bc(
-                        u=getattr(out, var), num_ghost=num_ghost, dim=dim, pos=pos
-                    )
-                case "negative-reflective":
-                    ubc = set_reflective_bc(
-                        u=getattr(out, var),
-                        num_ghost=num_ghost,
-                        dim=dim,
-                        pos=pos,
-                        negative=True,
-                    )
                 case "dirichlet":
                     ubc = set_dirichlet_bc(
                         f=bc_value,
@@ -381,11 +422,18 @@ class BoundaryCondition:
                     ubc = set_free_bc(
                         u=getattr(out, var), num_ghost=num_ghost, dim=dim, pos=pos
                     )
+                case "periodic":
+                    if ALREADY_APPLIED_PERIODIC_BOUNDARY.get(f"{var}{dim}", False):
+                        continue
+                    ubc = set_periodic_bc(
+                        u=getattr(out, var), num_ghost=num_ghost, dim=dim
+                    )
+                    ALREADY_APPLIED_PERIODIC_BOUNDARY[f"{var}{dim}"] = True
                 case "special-case-double-mach-reflection-y=0":
                     ubc_free = set_free_bc(
                         u=getattr(out, var), num_ghost=num_ghost, dim=dim, pos=pos
                     )
-                    ubc_reflective = set_reflective_bc(
+                    ubc_reflective = set_symmetric_bc(
                         u=getattr(out, var),
                         num_ghost=num_ghost,
                         dim=dim,
@@ -393,6 +441,18 @@ class BoundaryCondition:
                         negative=var == "my",
                     )
                     ubc = np.where(X < 1 / 6, ubc_free, ubc_reflective)
+                case "symmetric":
+                    ubc = set_symmetric_bc(
+                        u=getattr(out, var), num_ghost=num_ghost, dim=dim, pos=pos
+                    )
+                case "-symmetric":
+                    ubc = set_symmetric_bc(
+                        u=getattr(out, var),
+                        num_ghost=num_ghost,
+                        dim=dim,
+                        pos=pos,
+                        negative=True,
+                    )
                 case None:
                     continue
                 case _:

@@ -1,6 +1,6 @@
 from functools import partial
 from fvhoe.boundary_conditions import BoundaryCondition
-from fvhoe.initial_conditions import double_shock_1d, shock_tube_2d
+from fvhoe.initial_conditions import double_shock_1d, shock_tube
 from fvhoe.solver import EulerSolver
 import pytest
 from tests.test_utils import l2err
@@ -33,39 +33,9 @@ def test_1d_symmetry(N: int, p: int, convex: bool):
             pz=p if dim == "z" else 0,
             riemann_solver="hllc",
             bc=BoundaryCondition(
-                x=(
-                    {
-                        "rho": "reflective",
-                        "E": "reflective",
-                        "mx": "negative-reflective",
-                        "my": "periodic",
-                        "mz": "periodic",
-                    }
-                    if dim == "x"
-                    else "periodic"
-                ),
-                y=(
-                    {
-                        "rho": "reflective",
-                        "E": "reflective",
-                        "mx": "periodic",
-                        "my": "negative-reflective",
-                        "mz": "periodic",
-                    }
-                    if dim == "y"
-                    else "periodic"
-                ),
-                z=(
-                    {
-                        "rho": "reflective",
-                        "E": "reflective",
-                        "mx": "periodic",
-                        "my": "periodic",
-                        "mz": "negative-reflective",
-                    }
-                    if dim == "z"
-                    else "periodic"
-                ),
+                x="reflective" if dim == "x" else "periodic",
+                y="reflective" if dim == "y" else "periodic",
+                z="reflective" if dim == "z" else "periodic",
             ),
             gamma=1.4,
             a_posteriori_slope_limiting=True,
@@ -73,7 +43,7 @@ def test_1d_symmetry(N: int, p: int, convex: bool):
             all_floors=True,
             slope_limiter="minmod",
         )
-        solver.rkorder(T, save_snapshots=False)
+        solver.rkorder(T)
         solutions[dim] = solver
 
     xyerr = l2err(
@@ -94,24 +64,19 @@ def test_1d_symmetry(N: int, p: int, convex: bool):
 @pytest.mark.parametrize("convex", [False, True])
 def test_2d_symmetry(N: int, p: int, convex: bool):
     T = 0.3
-    P_blast = (1.4 - 1) * 0.25 * N**2
 
     solutions = {}
     for dims in ["xy", "yz", "zx"]:
         solver = EulerSolver(
             w0=partial(
-                shock_tube_2d,
-                dims=dims,
-                center=(
-                    0.5 / N if "x" in dims else 0,
-                    0.5 / N if "y" in dims else 0,
-                    0.5 / N if "z" in dims else 0,
-                ),
-                radius=0,
+                shock_tube,
+                mode="cube",
+                x_cube=(0, 1 / N) if "x" in dims else None,
+                y_cube=(0, 1 / N) if "y" in dims else None,
+                z_cube=(0, 1 / N) if "z" in dims else None,
                 rho_in_out=(1, 1),
-                P_in_out=(P_blast, 1e-5),
+                P_in_out=(0.25 * (N**2) * (1.4 - 1), 1e-5),
             ),
-            fv_ic=True,
             nx=N if "x" in dims else 1,
             ny=N if "y" in dims else 1,
             nz=N if "z" in dims else 1,
@@ -120,39 +85,9 @@ def test_2d_symmetry(N: int, p: int, convex: bool):
             pz=p if "z" in dims else 0,
             riemann_solver="llf",
             bc=BoundaryCondition(
-                x=(
-                    {
-                        "rho": "reflective",
-                        "mx": "negative-reflective",
-                        "my": "reflective" if "y" in dims else "periodic",
-                        "mz": "reflective" if "z" in dims else "periodic",
-                        "E": "reflective",
-                    }
-                    if "x" in dims
-                    else "periodic"
-                ),
-                y=(
-                    {
-                        "rho": "reflective",
-                        "mx": "reflective" if "x" in dims else "periodic",
-                        "my": "negative-reflective",
-                        "mz": "reflective" if "z" in dims else "periodic",
-                        "E": "reflective",
-                    }
-                    if "y" in dims
-                    else "periodic"
-                ),
-                z=(
-                    {
-                        "rho": "reflective",
-                        "mx": "reflective" if "x" in dims else "periodic",
-                        "my": "reflective" if "y" in dims else "periodic",
-                        "mz": "negative-reflective",
-                        "E": "reflective",
-                    }
-                    if "z" in dims
-                    else "periodic"
-                ),
+                x=("reflective", "free") if "x" in dims else None,
+                y=("reflective", "free") if "y" in dims else None,
+                z=("reflective", "free") if "z" in dims else None,
             ),
             gamma=1.4,
             a_posteriori_slope_limiting=True,
@@ -160,7 +95,7 @@ def test_2d_symmetry(N: int, p: int, convex: bool):
             all_floors=True,
             slope_limiter="minmod",
         )
-        solver.rkorder(T, save_snapshots=False)
+        solver.rkorder(T)
         solutions[dims] = solver
 
     xy_yz_err = l2err(

@@ -1,3 +1,4 @@
+from functools import partial
 from fvhoe.hydro import advection_dt
 from fvhoe.initial_conditions import sinus, square
 from fvhoe.solver import EulerSolver
@@ -18,13 +19,6 @@ def test_1d_advection_symmetry(f0: callable, p: int, N: int = 64, t: float = 1):
     """
     solutions = {}
     for dim in ["x", "y", "z"]:
-
-        def directional_f0(x, y, z):
-            vx = {"x": 1, "y": 0, "z": 0}[dim]
-            vy = {"x": 0, "y": 1, "z": 0}[dim]
-            vz = {"x": 0, "y": 0, "z": 1}[dim]
-            return f0(x, y, z, dims=dim, vx=vx, vy=vy, vz=vz)
-
         nx = {"x": N, "y": 1, "z": 1}[dim]
         ny = {"x": 1, "y": N, "z": 1}[dim]
         nz = {"x": 1, "y": 1, "z": N}[dim]
@@ -32,7 +26,13 @@ def test_1d_advection_symmetry(f0: callable, p: int, N: int = 64, t: float = 1):
         py = {"x": 0, "y": p, "z": 0}[dim]
         pz = {"x": 0, "y": 0, "z": p}[dim]
         solver = EulerSolver(
-            w0=directional_f0,
+            w0=partial(
+                f0,
+                dims=dim,
+                vx=1 if dim == "x" else 0,
+                vy=1 if dim == "y" else 0,
+                vz=1 if dim == "z" else 0,
+            ),
             nx=nx,
             ny=ny,
             nz=nz,
@@ -43,7 +43,7 @@ def test_1d_advection_symmetry(f0: callable, p: int, N: int = 64, t: float = 1):
             progress_bar=False,
             fixed_dt=0.4 * advection_dt(hx=1 / N, vx=1),
         )
-        solver.rkorder(stopping_time=t)
+        solver.rkorder(t)
         solutions[dim] = solver
 
     xyerr = l2err(
@@ -70,13 +70,6 @@ def test_2d_advection_symmetry(p, N=32, t: float = 1):
     """
     solutions = {}
     for dims in ["xy", "yz", "zx"]:
-
-        def directional_f0(x, y, z):
-            vx = {"xy": 2, "yz": 0, "zx": 2}[dims]
-            vy = {"xy": 1, "yz": 2, "zx": 0}[dims]
-            vz = {"xy": 0, "yz": 1, "zx": 1}[dims]
-            return square(x, y, z, dims=dims, vx=vx, vy=vy, vz=vz)
-
         nx = {"xy": N, "yz": 1, "zx": N}[dims]
         ny = {"xy": N, "yz": N, "zx": 1}[dims]
         nz = {"xy": 1, "yz": N, "zx": N}[dims]
@@ -84,7 +77,13 @@ def test_2d_advection_symmetry(p, N=32, t: float = 1):
         py = {"xy": p, "yz": p, "zx": 0}[dims]
         pz = {"xy": 0, "yz": p, "zx": p}[dims]
         solver = EulerSolver(
-            w0=directional_f0,
+            w0=partial(
+                square,
+                dims=dims,
+                vx={"xy": 2, "yz": 0, "zx": 2}[dims],
+                vy={"xy": 1, "yz": 2, "zx": 0}[dims],
+                vz={"xy": 0, "yz": 1, "zx": 1}[dims],
+            ),
             nx=nx,
             ny=ny,
             nz=nz,
@@ -95,7 +94,7 @@ def test_2d_advection_symmetry(p, N=32, t: float = 1):
             progress_bar=False,
             fixed_dt=0.4 * advection_dt(hx=1 / N, hy=1 / N, vx=2, vy=1),
         )
-        solver.rkorder(stopping_time=t)
+        solver.rkorder(t)
         solutions[dims] = solver
 
     xy_yz_err = l2err(
