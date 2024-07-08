@@ -5,9 +5,14 @@ import matplotlib.pyplot as plt
 import numpy as np
 import os
 
-N = 128
-p = 1
-filename = f"kelvin-helmholtz_{N=}_{p=}"
+T = 0.8
+n_snapshots = 2
+N = 2048
+p = 3
+NAD = 1e-2
+SED = False
+name = f"kelvin-helmholtz_{N=}_{p=}_{NAD=}_{SED=}"
+snapshot_dir = "/scratch/gpfs/jp7427/fvhoe/snapshots/" + name
 
 
 def snapshot_helper_function(s):
@@ -32,10 +37,12 @@ def snapshot_helper_function(s):
     ax[1, 0].set_xlabel("$x$")
     ax[1, 1].set_xlabel("$x$")
 
-    if not os.path.exists(f"snapshots/{filename}"):
-        os.makedirs(f"snapshots/{filename}")
+    if not os.path.exists(f"snapshots/{snapshot_dir}"):
+        os.makedirs(f"snapshots/{snapshot_dir}")
 
-    plt.savefig(f"snapshots/{filename}/t={s.t:.2f}.png", dpi=300, bbox_inches="tight")
+    plt.savefig(
+        f"snapshots/{snapshot_dir}/t={s.t:.2f}.png", dpi=300, bbox_inches="tight"
+    )
 
 
 solver = EulerSolver(
@@ -49,18 +56,15 @@ solver = EulerSolver(
     bc=BoundaryCondition(x="periodic", y="periodic"),
     gamma=1.4,
     a_posteriori_slope_limiting=True,
-    density_floor=False,
-    pressure_floor=False,
-    rho_P_sound_speed_floor=False,
     slope_limiter="minmod",
+    NAD=NAD,
+    SED=SED,
     cupy=True,
     snapshot_helper_function=snapshot_helper_function,
 )
 
-T = 0.1
 solver.rkorder(
-    T,
-    downbeats=np.linspace(0, T, 3).tolist(),
-    filename=filename,
-    overwrite=True,
+    T=T,
+    downbeats=np.linspace(0, T, n_snapshots),
+    snapshot_dir=snapshot_dir,
 )

@@ -6,9 +6,16 @@ import matplotlib.pyplot as plt
 import numpy as np
 import os
 
-Nx = 3200
-p = 3
-filename = f"double-mach_{Nx=}_{p=}"
+T = 0.2
+n_snapshots = 2
+Nx = 3840
+p = 4
+NAD = 1e-2
+SED = True
+CFL = 0.6
+integrator = "SSPRK3"
+name = f"double-mach-reflection_{Nx=}_{p=}_{NAD=}_{SED=}_{CFL=}_{integrator=}"
+snapshot_dir = "/scratch/gpfs/jp7427/fvhoe/snapshots/" + name
 
 
 def snapshot_helper_function(s):
@@ -32,10 +39,10 @@ def snapshot_helper_function(s):
     ax.set_xlabel("$x$")
     ax.set_ylabel("$y$")
 
-    if not os.path.exists(f"snapshots/{filename}"):
-        os.makedirs(f"snapshots/{filename}")
+    if not os.path.exists(f"snapshots/{name}"):
+        os.makedirs(f"snapshots/{name}")
 
-    plt.savefig(f"snapshots/{filename}/t={s.t:.2f}.png", dpi=300, bbox_inches="tight")
+    plt.savefig(f"snapshots/{name}/t={s.t:.2f}.png", dpi=300, bbox_inches="tight")
 
 
 # double mach reflection setup
@@ -116,22 +123,7 @@ def E_upper(x, y, z, t):
 solver = EulerSolver(
     w0=double_mach_reflection_2d,
     bc=BoundaryCondition(
-        x=(
-            {
-                "rho": "dirichlet",
-                "E": "dirichlet",
-                "mx": "dirichlet",
-                "my": "dirichlet",
-                "mz": "periodic",
-            },
-            {
-                "rho": "reflective",
-                "E": "reflective",
-                "mx": "reflective",
-                "my": "reflective",
-                "mz": "periodic",
-            },
-        ),
+        x=("dirichlet", "symmetric"),
         x_value=(
             {
                 "rho": rho[0],
@@ -140,38 +132,14 @@ solver = EulerSolver(
                 "my": rho[0] * vy[0],
                 "mz": None,
             },
-            {
-                "rho": None,
-                "E": None,
-                "mx": None,
-                "my": None,
-                "mz": None,
-            },
+            None,
         ),
         y=(
-            {
-                "rho": "special-case-double-mach-reflection-y=0",
-                "E": "special-case-double-mach-reflection-y=0",
-                "mx": "special-case-double-mach-reflection-y=0",
-                "my": "special-case-double-mach-reflection-y=0",
-                "mz": "periodic",
-            },
-            {
-                "rho": "dirichlet",
-                "E": "dirichlet",
-                "mx": "dirichlet",
-                "my": "dirichlet",
-                "mz": "periodic",
-            },
+            "special-case-double-mach-reflection-y=0",
+            "dirichlet",
         ),
         y_value=(
-            {
-                "rho": None,
-                "E": None,
-                "mx": None,
-                "my": None,
-                "mz": None,
-            },
+            None,
             {
                 "rho": rho_upper,
                 "E": E_upper,
@@ -181,28 +149,32 @@ solver = EulerSolver(
             },
         ),
     ),
-    CFL=0.8,
+    CFL=CFL,
     x=(0, 4),
     y=(0, 1),
     nx=Nx,
     ny=Nx // 4,
     px=p,
     py=p,
-    riemann_solver="llf",
+    riemann_solver="hllc",
     gamma=1.4,
-    density_floor=True,
-    pressure_floor=True,
-    rho_P_sound_speed_floor=True,
+    all_floors=True,
     a_posteriori_slope_limiting=p > 0,
+    NAD=NAD,
+    SED=SED,
     slope_limiter="minmod",
     cupy=True,
     snapshot_helper_function=snapshot_helper_function,
 )
 
-T = 0.2
-solver.rkorder(
-    T,
-    downbeats=np.linspace(0, T, 41).tolist(),
-    filename=filename,
-    overwrite=True,
+integrator_config = dict(
+    T=T,
+    downbeats=np.linspace(0, T, n_snapshots),
+    snapshot_dir=snapshot_dir,
 )
+if integrator == "SSPRK3":
+    solver.ssprk3(**integrator_config)
+elif integrator == "RK4":
+    solver.rk4(**integrator_config)
+else:
+    raise ValueError(f"Integrator {integrator}")
