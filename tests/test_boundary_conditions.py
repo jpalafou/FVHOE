@@ -30,6 +30,92 @@ def test_init(bc: str, dim: str):
     assert bc_str == bc_dic
 
 
+@pytest.mark.parametrize("bcl", ["free", "symmetric"])
+@pytest.mark.parametrize("bcr", ["free", "symmetric"])
+@pytest.mark.parametrize("dim", ["x", "y", "z"])
+def test_init_mixed(bcl: str, bcr: str, dim: str):
+    """
+    Test that the BoundaryCondition class can be initialized in different ways.
+    args:
+        bcl (str) : boundary condition left
+        bcr (str) : boundary condition right
+        dim (str) : dimension
+    """
+    bc_tup = BoundaryCondition(names=conservative_names, **{dim: (bcl, bcr)})
+    bc_dic = BoundaryCondition(
+        names=conservative_names,
+        **{
+            dim: (
+                {var: bcl for var in conservative_names},
+                {var: bcr for var in conservative_names},
+            )
+        },
+    )
+    assert bc_tup == bc_dic
+
+
+@pytest.mark.parametrize("empty_dim", ["x", "y", "z"])
+def test_2d_bc(empty_dim: str, N: int = 64, gw: int = 10):
+    """
+    Test that the boundary condition applied to a third dimension with gw=0 is inconsequential.
+    args:
+        empty_dim (str) : dimension with gw=0
+        N (int) : number of cells
+        gw (int) : number of ghost cells
+    """
+    # create a 2D random field
+    data = np.random.rand(5, N, N, 1)
+    arr = NamedNumpyArray(input_array=data, names=conservative_names)
+    gws = [gw, gw, gw]
+    gws["xyz".index(empty_dim)] = 0
+
+    # define different boundary conditions
+    bc_configs = {
+        "None": {"x": "free", "y": "free", "z": "free"},
+        "free": {"x": "free", "y": "free", "z": "free"},
+        "periodic": {"x": "free", "y": "free", "z": "free"},
+        "reflective": {"x": "free", "y": "free", "z": "free"},
+        "dirichlet": {
+            "x": "free",
+            "y": "free",
+            "z": "free",
+            "x_value": 1,
+            "y_value": 1,
+            "z_value": 1,
+            "x_domain": (0, 1),
+            "y_domain": (0, 1),
+            "z_domain": (0, 1),
+            "h": (1 / N, 1 / N, 1 / N),
+        },
+    }
+
+    for bc in [None, "free", "periodic", "reflective", "dirichlet"]:
+        bc_configs[str(bc)][empty_dim] = bc
+
+    bc_None = BoundaryCondition(names=conservative_names, **bc_configs["None"])
+    bc_free = BoundaryCondition(names=conservative_names, **bc_configs["free"])
+    bc_periodic = BoundaryCondition(names=conservative_names, **bc_configs["periodic"])
+    bc_reflective = BoundaryCondition(
+        names=conservative_names, **bc_configs["reflective"]
+    )
+    bc_dirichlet = BoundaryCondition(
+        names=conservative_names, **bc_configs["dirichlet"]
+    )
+
+    # apply boundary conditions
+    arr_None = bc_None.apply(arr, gw=gws)
+    arr_free = bc_free.apply(arr, gw=gws)
+    arr_periodic = bc_periodic.apply(arr, gw=gws)
+    arr_reflective = bc_reflective.apply(arr, gw=gws)
+    arr_dirichlet = bc_dirichlet.apply(arr, gw=gws)
+
+    # check that the results are the same
+    assert np.all(arr_free == arr_None)
+    assert np.all(arr_periodic == arr_None)
+    assert np.all(arr_reflective == arr_None)
+    assert np.all(arr_dirichlet == arr_None)
+
+
 @pytest.mark.parametrize("dim", ["x", "y", "z"])
 def test_periodic_symmetric_equivalence(dim: str, N: int = 64, gw: int = 10):
     """
