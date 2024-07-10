@@ -209,6 +209,7 @@ VALID_BC_TYPES = {
     None,
     "dirichlet",
     "free",
+    "outflow",
     "periodic",
     "special-case-double-mach-reflection-y=0",
     "symmetric",
@@ -441,7 +442,7 @@ class BoundaryCondition:
                         negative=var == "my",
                     )
                     ubc = np.where(X < 1 / 6, ubc_free, ubc_reflective)
-                case "symmetric":
+                case "symmetric" | "outflow":
                     ubc = set_symmetric_bc(
                         u=getattr(out, var), num_ghost=num_ghost, dim=dim, pos=pos
                     )

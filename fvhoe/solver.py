@@ -52,7 +52,7 @@ class EulerSolver(ODE):
         fixed_dt: float = None,
         gamma: float = 5 / 3,
         bc: BoundaryCondition = None,
-        riemann_solver: str = "HLLC",
+        riemann_solver: str = "hllc",
         conservative_ic: bool = False,
         fv_ic: bool = False,
         fixed_primitive_variables: Iterable = None,
@@ -766,6 +766,8 @@ class EulerSolver(ODE):
             attrs_to_save[k] = v
 
         # Write the attributes to a json file
+        sorted_keys = sorted(attrs_to_save.keys(), key=lambda x: (x.lower(), x))
+        attrs_to_save = {key: attrs_to_save[key] for key in sorted_keys}
         with open(os.path.join(snapshot_dir, "attrs.json"), "w") as f:
             json.dump(attrs_to_save, f, indent=4)
 

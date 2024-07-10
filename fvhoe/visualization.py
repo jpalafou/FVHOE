@@ -4,86 +4,87 @@ import numpy as np
 from typing import Tuple
 
 
+def get_snapshot_list(s) -> list:
+    """
+    args:
+        s : snapshot list or solver
+    returns:
+        snapshot list
+    """
+    if isinstance(s, list):
+        return s
+    elif hasattr(s, "snapshots"):
+        # solver is an EulerSolver object
+        return s.snapshots
+    else:
+        raise ValueError("s must be a snapshot list or a solver instance")
+
+
 def get_indices_from_coordinates(
-    snapshots: list, x: float = None, y: float = None, z: float = None, t: float = None
-) -> Tuple[Tuple[int, int, int, int], Tuple[float, float, float, float]]:
+    snapshots: list,
+    t: float = None,
+    x: float = None,
+    y: float = None,
+    z: float = None,
+) -> Tuple[int, tuple]:
     """
     get the indices of the nearest x, y, z, t values in the snapshots
     args:
         snapshots (list) : list of snapshots, each a dictionary with keys "x", "y", "z", "t", "w"
-        x (float) : x-coordinate
-        y (float) : y-coordinate
-        z (float) : z-coordinate
         t (float) : time
+        x (float) : x-coordinate or None for slice of entire dimension
+        y (float) : y-coordinate or None for slice of entire dimension
+        z (float) : z-coordinate or None for slice of entire dimension
     returns:
-        i, j, k, n (int) : indices of the nearest x, y, z, t values in the snapshots
+        n (int) : snapshot index nearest to t
+        (i, j, k) (tuple) : array slices nearest to x, y, z
     """
-    if x is None and y is None and z is None:
-        raise BaseException("One out of the three coordinates x-y-z must be None")
     if t is None:
         n = -1
-        nearest_t = snapshots[-1]["t"]
     else:
         tarr = np.array([snapshots[i]["t"] for i in range(len(snapshots))])
         n = np.argmin(np.abs(tarr - t))
-        nearest_t = snapshots[n]["t"]
     if x is None:
-        i = nearest_x = None
+        i = slice(None)
     else:
-        i = np.argmin(np.abs(snapshots[n]["x"] - x))
-        nearest_x = snapshots[n]["x"][i]
+        i = int(np.argmin(np.abs(snapshots[n]["x"] - x)))
     if y is None:
-        j = nearest_y = None
+        j = slice(None)
     else:
-        j = np.argmin(np.abs(snapshots[n]["y"] - y))
-        nearest_y = snapshots[n]["y"][j]
+        j = int(np.argmin(np.abs(snapshots[n]["y"] - y)))
     if z is None:
-        k = nearest_z = None
+        k = slice(None)
     else:
-        k = np.argmin(np.abs(snapshots[n]["z"] - z))
-        nearest_z = snapshots[n]["z"][k]
-    return (i, j, k, n), (nearest_x, nearest_y, nearest_z, nearest_t)
+        k = int(np.argmin(np.abs(snapshots[n]["z"] - z)))
+    return n, (i, j, k)
 
 
 def xyzt_summary(
-    x_arr: np.ndarray,
-    y_arr: np.ndarray,
-    z_arr: np.ndarray,
-    x_nearest: float,
-    y_nearest: float,
-    z_nearest: float,
-    t_nearest: float,
+    snapshots: list,
+    n: int = None,
+    i: int = None,
+    j: int = None,
+    k: int = None,
 ) -> str:
     """
     get a summary of the nearest x, y, z, t values
     args:
-        x_arr (np.ndarray) : array of x values
-        y_arr (np.ndarray) : array of y values
-        z_arr (np.ndarray) : array of z values
-        x_nearest (float) : nearest x value
-        y_nearest (float) : nearest y value
-        z_nearest (float) : nearest z value
-        t_nearest (float) : nearest t value
+        snapshots (list) : list of snapshots
+        n (int) : snapshot index
+        i (int) : array slice in x
+        j (int) : array slice in y
+        z (int) : array slice in z
     returns:
-        out (str) : summary of the nearest x, y, z, t values
+        out (str) : summary of the nearest t, x, y, z values
     """
-    t_message = f"{t_nearest:.2f}"
-    x_message = (
-        f"{x_nearest:.2f}"
-        if (isinstance(x_nearest, int) or isinstance(x_nearest, float))
-        else f"[{x_arr[0]:.2f}, {x_arr[-1]:.2f}]"
-    )
-    y_message = (
-        f"{y_nearest:.2f}"
-        if (isinstance(y_nearest, int) or isinstance(y_nearest, float))
-        else f"[{y_arr[0]:.2f}, {y_arr[-1]:.2f}]"
-    )
-    z_message = (
-        f"{z_nearest:.2f}"
-        if (isinstance(z_nearest, int) or isinstance(z_nearest, float))
-        else f"[{z_arr[0]:.2f}, {z_arr[-1]:.2f}]"
-    )
-    out = f"t={t_message}, x={x_message}, y={y_message}, z={z_message}"
+    x = snapshots[n]["x"][i]
+    y = snapshots[n]["y"][j]
+    z = snapshots[n]["z"][k]
+    tstr = str(snapshots[n]["t"])
+    xstr = str(x) if isinstance(i, int) else f"[{x[0]}, {x[-1]}]"
+    ystr = str(y) if isinstance(j, int) else f"[{y[0]}, {y[-1]}]"
+    zstr = str(z) if isinstance(k, int) else f"[{z[0]}, {z[-1]}]"
+    out = f"t={tstr}, x={xstr}, y={ystr}, z={zstr}"
     return out
 
 
@@ -102,7 +103,7 @@ def plot_1d_slice(
     """
     plot a 1-dimensional slice by specifying t and two of three spatial dimensions x, y, and z
     args:
-        solver (EulerSolver) : EulerSolver object
+        solver (EulerSolver) : EulerSolver object or snapshot list
         ax (Axes) : Axes object
         param (str) : parameter to plot
         t (float) : time. nearest snapshot time is used if it is not in the list of snapshot times
@@ -115,27 +116,18 @@ def plot_1d_slice(
     returns:
         None : modifies the input Axes object
     """
-    if isinstance(solver, list):
-        snapshots = solver
-    else:
-        # solver is an EulerSolver object
-        snapshots = solver.snapshots
+    snapshots = get_snapshot_list(solver)
+    n, slices = get_indices_from_coordinates(snapshots, t, x, y, z)
 
-    if sum([x is None, y is None, z is None]) != 1:
-        raise BaseException("One out of the three coordinates x-y-z must be None")
-    # get the indices of the nearest x, y, z, t values in the snapshots
-    (i, j, k, n), (xn, yn, zn, tn) = get_indices_from_coordinates(snapshots, x, y, z, t)
-    xarr, yarr, zarr = snapshots[n]["x"], snapshots[n]["y"], snapshots[n]["z"]
-    # get slice information
+    # x-data
     if x is None:
-        x_for_plotting = xarr
-        slices = (slice(None), j, k)
+        x_for_plotting = snapshots[n]["x"]
     elif y is None:
-        x_for_plotting = yarr
-        slices = (i, slice(None), k)
+        x_for_plotting = snapshots[n]["y"]
     elif z is None:
-        x_for_plotting = zarr
-        slices = (i, j, slice(None))
+        x_for_plotting = snapshots[n]["z"]
+    else:
+        raise BaseException("One out of the three coordinates x-y-z must be None")
     # y-data
     if param == "trouble":
         trouble = snapshots[n]["trouble"]
@@ -146,7 +138,7 @@ def plot_1d_slice(
     y_for_plotting = source_array[slices]
     # print summary
     if verbose:
-        print(xyzt_summary(xarr, yarr, zarr, xn, yn, zn, tn))
+        print(xyzt_summary(snapshots, n, *slices))
     # return plot
     out = ax.plot(x_for_plotting, y_for_plotting, **kwargs)
     return out
@@ -157,9 +149,9 @@ def plot_2d_slice(
     ax,
     param: str,
     t: float = None,
-    x=None,
-    y=None,
-    z=None,
+    x: float = None,
+    y: float = None,
+    z: float = None,
     overlay_trouble: bool = False,
     tol: float = 0,
     cmap: str = "GnBu_r",
@@ -175,7 +167,7 @@ def plot_2d_slice(
     """
     plot a 2-dimensional slice by specifying t and one of three spatial dimensions x, y, and z
     args:
-        solver (EulerSolver) : EulerSolver object
+        solver (EulerSolver) : EulerSolver object or snapshot list
         ax (Axes) : Axes object
         param (str) : parameter to plot
         t (float) : time. nearest snapshot time is used if it is not in the list of snapshot times
@@ -196,33 +188,27 @@ def plot_2d_slice(
     returns:
         None : modifies the input Axes object
     """
-    if isinstance(solver, list):
-        snapshots = solver
-    else:
-        # solver is an EulerSolver object
-        snapshots = solver.snapshots
+    snapshots = get_snapshot_list(solver)
+    n, slices = get_indices_from_coordinates(snapshots, t, x, y, z)
 
-    if sum([x is None, y is None, z is None]) != 2:
-        raise BaseException("Two out of the three coordinates x-y-z must be None")
-    # get the indices of the nearest x, y, z, t values in the snapshots
-    (i, j, k, n), (xn, yn, zn, tn) = get_indices_from_coordinates(snapshots, x, y, z, t)
-    xarr, yarr, zarr = snapshots[n]["x"], snapshots[n]["y"], snapshots[n]["z"]
-    # get slice information
-    if x is None and y is None:
-        slices = (slice(None), slice(None), k)
+    # xy data
+    if (x, y) == (None, None):
         horizontal_axis, vertical_axis = "x", "y"
-        x_for_plotting, y_for_plotting = xarr, yarr
-        limits = (xarr[0], xarr[-1], yarr[0], yarr[-1])
-    elif y is None and z is None:
-        slices = (i, slice(None), slice(None))
+        x_for_plotting, y_for_plotting = snapshots[n]["x"], snapshots[n]["y"]
+    elif (y, z) == (None, None):
         horizontal_axis, vertical_axis = "y", "z"
-        x_for_plotting, y_for_plotting = yarr, zarr
-        limits = (yarr[0], yarr[-1], zarr[0], zarr[-1])
-    elif x is None and z is None:
-        slices = (i, j, slice(None))
+        x_for_plotting, y_for_plotting = snapshots[n]["y"], snapshots[n]["z"]
+    elif (x, z) == (None, None):
         horizontal_axis, vertical_axis = "x", "z"
-        x_for_plotting, y_for_plotting = xarr, zarr
-        limits = (xarr[0], xarr[-1], zarr[0], zarr[-1])
+        x_for_plotting, y_for_plotting = snapshots[n]["x"], snapshots[n]["z"]
+    else:
+        raise BaseException("Two out of the three coordinates x-y-z must be None")
+    limits = (
+        x_for_plotting[0],
+        x_for_plotting[-1],
+        y_for_plotting[0],
+        y_for_plotting[-1],
+    )
     # get z data
     if param == "trouble" or overlay_trouble:
         trouble = snapshots[n]["trouble"][slices]
@@ -247,7 +233,7 @@ def plot_2d_slice(
         colormap.set_bad(color=trouble_color)
     # print summary
     if verbose:
-        print(xyzt_summary(xarr, yarr, zarr, xn, yn, zn, tn))
+        print(xyzt_summary(snapshots, n, *slices))
         print(f"{horizontal_axis=}, {vertical_axis=}")
     # return plot
     if contour:
@@ -266,3 +252,51 @@ def plot_2d_slice(
             z_for_plotting, norm=norm, extent=limits, cmap=colormap, **kwargs
         )
     return out
+
+
+def sample_circular_average(
+    solver,
+    param: str,
+    t: float = None,
+    center: Tuple[float, float, float] = None,
+    radii: np.ndarray = None,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    take average of a parameter in 3D radial bins. should be used when snapshots are of cell-centered values
+    args:
+        solver (EulerSolver) : EulerSolver object or snapshot list
+        param (str) : parameter to sample
+            primitive/conservative variable ["rho", "P", ...]
+            "v" hypotenuse of vx, vy, and vz
+        t (float) : time. nearest snapshot time is used if it is not in the list of snapshot times
+        center (Tuple[float, float, float]) 3D point, center of radial bins
+        radii (array_like) : radii of bin interfaces
+    returns:
+        bin_average (array_like) : average of param in each bin
+        r_average (array_like) : average radius in each bin
+    """
+    snapshots = get_snapshot_list(solver)
+    n, _ = get_indices_from_coordinates(snapshots, t)
+    X, Y, Z = np.meshgrid(
+        snapshots[n]["x"], snapshots[n]["y"], snapshots[n]["z"], indexing="ij"
+    )
+    R = np.sqrt(
+        np.square(X - center[0]) + np.square(Y - center[1]) + np.square(Z - center[2])
+    )
+    if param == "v":
+        vx = snapshots[n]["w"].vx
+        vy = snapshots[n]["w"].vy
+        vz = snapshots[n]["w"].vz
+        param_data = np.sqrt(np.square(vx) + np.square(vy) + np.square(vz))
+    else:
+        param_data = getattr(snapshots[n]["w"], param)
+    r_average = np.empty_like(radii[:-1])
+    bin_average = np.empty_like(radii[:-1])
+    for i, (little_r, big_r) in enumerate(zip(radii[:-1], radii[1:])):
+        inside_bin = np.logical_and(R > little_r, R <= big_r)
+        sample_n = np.sum(np.where(inside_bin, 1, 0))
+        r_sum = np.sum(np.where(inside_bin, R, 0))
+        bin_sum = np.sum(np.where(inside_bin, param_data, 0))
+        r_average[i] = r_sum / sample_n if sample_n > 0 else np.nan
+        bin_average[i] = bin_sum / sample_n if sample_n > 0 else np.nan
+    return bin_average, r_average

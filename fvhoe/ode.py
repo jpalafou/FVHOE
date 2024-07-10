@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 import numpy as np
 import os
+import subprocess
 import time
 from tqdm import tqdm
 from typing import Any, Tuple
@@ -43,6 +44,42 @@ class ODE(ABC):
         # progress bar
         self.print_progress_bar = True if progress_bar else False
 
+        # git commit details
+        self.commit_details = self.get_commit_details()
+
+    def get_commit_details(self) -> dict:
+        """
+        get commit details as dict
+        """
+        repo_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        try:
+            # Navigate to the repository path and get commit details
+            result = subprocess.run(
+                ["git", "-C", repo_path, "log", "-1", "--pretty=format:%H|%an|%ai|%D"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=True,
+            )
+            commit_info = result.stdout.strip().split("|")
+            commit_hash = commit_info[0]
+            author_name = commit_info[1]
+            commit_date = commit_info[2]
+            branch_name = (
+                commit_info[3].split(",")[0].strip().split()[-1]
+                if len(commit_info) > 3
+                else None
+            )
+
+            return {
+                "commit_hash": commit_hash,
+                "author_name": author_name,
+                "commit_date": commit_date,
+                "branch_name": branch_name,
+            }
+        except subprocess.CalledProcessError as e:
+            return {"error": f"An error occurred: {e.stderr.strip()}"}
+
     def integrate(
         self,
         T: float = None,
@@ -50,9 +87,8 @@ class ODE(ABC):
         exact: bool = True,
         downbeats: Any = None,
         log_every_step: bool = False,
-        save: bool = False,
-        overwrite: bool = False,
         snapshot_dir: str = None,
+        overwrite: bool = False,
     ) -> None:
         """
         args:
@@ -61,9 +97,8 @@ class ODE(ABC):
             exact (bool) : avoid overshooting T
             downbeats (iterable[float]) : times to reach exactly and log a snapshot, if exact is True
             log_every_step (bool) : take a snapshot at every step
-            save (bool) : save snapshots
+            snapshot_dir (str) : directory to save snapshots. if None, does not save
             overwrite (bool) : overwrite the snapshot directory if it exists
-            snapshot_dir (str) : directory to save snapshots
         """
         predetermined_step_count = T is None
 
@@ -78,6 +113,7 @@ class ODE(ABC):
             return
 
         # if save is True, try to read snapshots
+        save = snapshot_dir is not None
         if save:
             self.snapshot_dir = os.path.normpath(snapshot_dir)
             snapshot_already_found = self.read_snapshots(overwrite)
