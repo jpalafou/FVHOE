@@ -88,6 +88,17 @@ def xyzt_summary(
     return out
 
 
+def get_velocity_magnitude(w) -> np.ndarray:
+    """
+    args:
+        w (NamedArray) : primitive variables
+    returns:
+        out (array_like) : velocity magnitude in 3D
+    """
+    out = np.sqrt(np.square(w.vx) + np.square(w.vy) + np.square(w.vz))
+    return out
+
+
 def plot_1d_slice(
     solver,
     ax,
@@ -133,6 +144,8 @@ def plot_1d_slice(
         trouble = snapshots[n]["trouble"]
         NAD_mag = snapshots[n]["NAD violation magnitude"]
         source_array = np.where(NAD_mag > tol, trouble, 0)
+    elif param == "v":
+        source_array = get_velocity_magnitude(snapshots[n]["w"])
     else:
         source_array = getattr(snapshots[n]["w"], param)
     y_for_plotting = source_array[slices]
@@ -216,6 +229,8 @@ def plot_2d_slice(
         trouble_for_plotting = np.where(NAD_mag > tol, trouble, 0)
     if param == "trouble":
         source_array = snapshots[n]["trouble"]
+    elif param == "v":
+        source_array = get_velocity_magnitude(snapshots[n]["w"])
     else:
         source_array = getattr(snapshots[n]["w"], param)
     z_for_plotting = source_array[slices]
