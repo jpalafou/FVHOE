@@ -18,10 +18,10 @@ def test_save_load():
     solver = EulerSolver(**solver_config)
 
     # solve and save snapshots
-    solver.euler(0.245, save=True, snapshot_dir="snapshots/test", overwrite=True)
+    solver.euler(0.245, snapshot_dir="snapshots/test", overwrite=True)
 
     # load snapshots
     solver2 = EulerSolver(**solver_config)
-    solver2.euler(0.245, save=True, snapshot_dir="snapshots/test")
+    solver2.euler(0.245, snapshot_dir="snapshots/test")
 
     assert np.all(solver.snapshots[-1]["w"] == solver2.snapshots[-1]["w"])
