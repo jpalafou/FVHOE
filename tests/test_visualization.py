@@ -1,4 +1,4 @@
-from fvhoe.initial_conditions import empty_primitive
+from fvhoe.initial_conditions import empty_NamedArray
 from fvhoe.named_array import NamedNumpyArray
 from fvhoe.visualization import sample_circular_average
 import numpy as np
@@ -14,7 +14,7 @@ def primitive_ones(N: int, dims: str) -> NamedNumpyArray:
         out (NamedArray) : primitive array where rho and P are 1 and each velocity component in dims is 1
     """
     shape = (N if "x" in dims else 1, N if "y" in dims else 1, N if "z" in dims else 1)
-    out = empty_primitive(shape)
+    out = empty_NamedArray(shape)
     out.rho = 1
     out.vx = (1 if "x" in dims else 0,)
     out.vy = (1 if "y" in dims else 0,)
