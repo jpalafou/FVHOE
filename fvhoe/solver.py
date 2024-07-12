@@ -58,6 +58,7 @@ class EulerSolver(ODE):
         fixed_primitive_variables: Iterable = None,
         a_posteriori_slope_limiting: bool = False,
         slope_limiter: str = "minmod",
+        force_trouble: bool = False,
         NAD: float = 1e-5,
         NAD_mode: str = "any",
         NAD_vars: list = None,
@@ -109,6 +110,7 @@ class EulerSolver(ODE):
             fixed_primitive_variables (Iterable) : series of primitive variables to keep fixed to their initial value
             a_posteriori_slope_limiting (bool) : whether to apply a postreiori slope limiting
             slope_limiter (str) : slope limiter code, "minmod", "moncen", None
+            force_trouble (bool) : if True, all cells are flagged as troubled
             NAD (float) : NAD tolerance in troubled cell detection
             NAD_mode (str) : NAD mode in troubled cell detection: "any", "only"
             NAD_vars (list) : when NAD_mode is "only", list of variables to apply NAD
@@ -207,7 +209,7 @@ class EulerSolver(ODE):
                 return compute_conservatives(w0(x, y, z), gamma=self.gamma)
 
         if fv_ic:
-            u0_fv = u0(self.X, self.Y, self.Z)
+            u0_fv = u0(x=self.X, y=self.Y, z=self.Z)
         else:
             u0_fv = fv_average(f=u0, x=self.X, y=self.Y, z=self.Z, h=self.h, p=self.p)
         u0_fv = self.NamedArray(u0_fv, u0_fv.variable_names)
@@ -223,6 +225,7 @@ class EulerSolver(ODE):
         # slope limiting
         self.a_posteriori_slope_limiting = a_posteriori_slope_limiting
         self.slope_limiter = slope_limiter
+        self.force_trouble = force_trouble
         self.NAD = NAD
         self.NAD_mode = NAD_mode
         self.NAD_vars = NAD_vars
@@ -281,7 +284,14 @@ class EulerSolver(ODE):
         dt, (self.F[...], self.G[...], self.H[...]) = self.hydrofluxes(u=u, p=self.p)
 
         if self.a_posteriori_slope_limiting:
-            self.revise_fluxes(u=u, F=self.F, G=self.G, H=self.H, dt=dt)
+            self.revise_fluxes(
+                u=u,
+                F=self.F,
+                G=self.G,
+                H=self.H,
+                dt=dt,
+                force_trouble=self.force_trouble,
+            )
 
         # compute conservative variable dynamics
         dudt = self.euler_equation(F=self.F, G=self.G, H=self.H)
@@ -480,6 +490,7 @@ class EulerSolver(ODE):
         G: NamedNumpyArray,
         H: NamedNumpyArray,
         dt: float,
+        force_trouble: bool = False,
     ) -> None:
         """
         revise fluxes to prevent oscillations
@@ -489,6 +500,7 @@ class EulerSolver(ODE):
             G (NamedNumpyArray) : y-fluxes. has shape (5, nx, ny + 1, nz)
             H (NamedNumpyArray) : z-fluxes. has shape (5, nx, ny, nz + 1)
             dt (float) : time-step size
+            force_trouble (bool) : all cells are troubled
         returns:
             None : revise fluxes in place
         """
@@ -517,6 +529,8 @@ class EulerSolver(ODE):
             SED_tolerance=self.SED_tolerance,
             xp={True: "cupy", False: "numpy"}[self.cupy],
         )
+        if force_trouble:
+            troubled_cells = np.ones_like(troubled_cells, dtype=bool)
 
         self.log_troubles(troubled_cells, NAD_mag)
 

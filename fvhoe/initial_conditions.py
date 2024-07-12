@@ -1,4 +1,4 @@
-from fvhoe.config import primitive_names
+from fvhoe.config import conservative_names, primitive_names
 from fvhoe.named_array import NamedNumpyArray
 import numpy as np
 from typing import Tuple, Union
@@ -12,15 +12,19 @@ def isnumeric(x):
         return False
 
 
-def empty_primitive(shape: Tuple[int, int, int] = None) -> NamedNumpyArray:
+def empty_NamedArray(
+    shape: Tuple[int, int, int] = None, vars: str = "primitive"
+) -> NamedNumpyArray:
     """
     assign primitive variables to a 3D mesh from uniform values, arrays, or functions of x, y, z
     args:
         shape (Tuple[int, int, int]) : defines the shape of the output, not including the variable dimension
+        vars (str) : "primitive" or "conservative"
     returns:
         out (NamedNumpyArray) : has variable names ["rho", "vx", "vy", "vz", "P"]
     """
-    out = NamedNumpyArray(np.asarray([np.empty(shape)] * 5), primitive_names)
+    names = {"conservative": conservative_names, "primitive": primitive_names}[vars]
+    out = NamedNumpyArray(np.asarray([np.empty(shape)] * 5), names)
     return out
 
 
@@ -56,7 +60,7 @@ def sinus(
     for dim, coord in zip("xyz", [x, y, z]):
         r += coord if dim in dims else 0
     rho = rho_range * (0.5 * np.sin(2 * np.pi * r) + 0.5) + rho_min
-    out = empty_primitive(r.shape)
+    out = empty_NamedArray(r.shape)
     out.rho = rho
     out.P = P
     out.vx = vx
@@ -96,7 +100,7 @@ def square(
     for dim, r in zip("xyz", [x, y, z]):
         inside_square &= np.logical_and(r > 0.25, r < 0.75) if dim in dims else True
     rho = np.where(inside_square, rho_min_max[1], rho_min_max[0])
-    out = empty_primitive(inside_square.shape)
+    out = empty_NamedArray(inside_square.shape)
     out.rho = rho
     out.P = P
     out.vx = vx
@@ -127,7 +131,7 @@ def slotted_disk(
     rsq = np.square(xc) + np.square(y - 0.75)
     inside_disk = rsq < 0.15**2
     inside_disk &= np.logical_not(np.logical_and(np.abs(xc) < 0.025, y < 0.85))
-    out = empty_primitive(inside_disk.shape)
+    out = empty_NamedArray(inside_disk.shape)
     out.rho = np.where(inside_disk, rho_min_max[1], rho_min_max[0])
     out.P = P
     out.vx = -yc
@@ -163,7 +167,7 @@ def shock_1d(
     if dim not in ["x", "y", "z"]:
         raise ValueError("dim must be 'x', 'y', or 'z'")
     r = {"x": x, "y": y, "z": z}[dim]
-    out = empty_primitive(r.shape)
+    out = empty_NamedArray(r.shape)
     out.rho = np.where(r < position, rho_left_right[0], rho_left_right[1])
     v = np.where(r < position, v_left_right[0], v_left_right[1])
     out.vx = v if dim == "x" else 0
@@ -204,7 +208,7 @@ def double_shock_1d(
             np.where(r < positions[1], values[1], values[2]),
         )
 
-    out = empty_primitive(r.shape)
+    out = empty_NamedArray(r.shape)
     out.rho = f(r, rhos)
     out.P = f(r, Ps)
     out.vx = f(r, vs) if dim == "x" else 0
@@ -228,7 +232,7 @@ def shu_osher_1d(
     """
     r = {"x": x, "y": y, "z": z}[dim] - 5
     v = v = np.where(r < -4, 2.629369, 0)
-    out = empty_primitive(r.shape)
+    out = empty_NamedArray(r.shape)
     out.rho = np.where(r < -4, 3.857143, 1 + 0.2 * np.sin(5 * r))
     out.vx = v if dim == "x" else 0
     out.vy = v if dim == "y" else 0
@@ -256,7 +260,7 @@ def kelvin_helmholtz_2d(
         out (NamedNumpyArray) : has variable names ["rho", "vx", "vy", "vz", "P"]
     """
     inner_region = np.logical_and(0.25 < y, y < 0.75)
-    out = empty_primitive(x.shape)
+    out = empty_NamedArray(x.shape)
     out.rho = np.where(inner_region, 2, 1)
     out.vx = np.where(inner_region, 0.5, -0.5)
     out.vy = (
@@ -289,7 +293,7 @@ def double_mach_reflection_2d(
     theta = np.pi / 3
     xp = x - y / np.tan(theta)
     gamma = 1.4
-    out = empty_primitive(x.shape)
+    out = empty_NamedArray(x.shape)
     out.rho = np.where(xp < xc, 8, gamma)
     out.vx = np.where(xp < xc, 7.145, 0)
     out.vy = np.where(xp < xc, -8.25 / 2, 0)
@@ -315,6 +319,7 @@ def shock_tube(
     x_cube: Tuple[float, float] = None,
     y_cube: Tuple[float, float] = None,
     z_cube: Tuple[float, float] = None,
+    conservative: bool = False,
 ) -> NamedNumpyArray:
     """
     multidimensional shock tube initial condition. can be a sphere or a rectangular prism in 3D
@@ -326,14 +331,15 @@ def shock_tube(
         center (Union[float, Tuple[float]]) : center of the blast
         radius (float) : radius of the blast
         rho_in_out (Tuple[float, float]) : density inside and outside the blast
-        P_in_out (Tuple[float, float]) : pressure inside and outside the blast
-        vx_in_out (Tuple[float, float]) : x-velocity inside and outside the blast
-        vy_in_out (Tuple[float, float]) : y-velocity inside and outside the blast
-        vz_in_out (Tuple[float, float]) : z-velocity inside and outside the blast
+        P_in_out (Tuple[float, float]) : pressure inside and outside the blast. if conservative, this is energy
+        vx_in_out (Tuple[float, float]) : x-velocity inside and outside the blast. if conservative, this is momentum
+        vy_in_out (Tuple[float, float]) : y-velocity inside and outside the blast. if conservative, this is momentum
+        vz_in_out (Tuple[float, float]) : z-velocity inside and outside the blast. if conservative, this is momentum
         mode (str) : 'tube' or 'cube'. if 'cube', the blast is a rectangular prism and dims, center, and radius are ignored
         x_cube (Tuple[float, float]) : x-cube dimensions for mode='cube'
         y_cube (Tuple[float, float]) : y-cube dimensions for mode='cube'
         z_cube (Tuple[float, float]) : z-cube dimensions for mode='cube'
+        conservative (bool) : if True, uses primitive arguments to define their conservative counterparts
     """
     if mode == "tube":
         # convert single values to tuples
@@ -366,10 +372,19 @@ def shock_tube(
             inside_region &= np.logical_and(z >= z_cube[0], z <= z_cube[1])
 
     # define initial conditions
-    out = empty_primitive(x.shape)
+    out = empty_NamedArray(
+        x.shape,
+        vars="conservative" if conservative else "primitive",
+    )
     out.rho = np.where(inside_region, rho_in_out[0], rho_in_out[1])
-    out.P = np.where(inside_region, P_in_out[0], P_in_out[1])
-    out.vx = np.where(inside_region, vx_in_out[0], vx_in_out[1])
-    out.vy = np.where(inside_region, vy_in_out[0], vy_in_out[1])
-    out.vz = np.where(inside_region, vz_in_out[0], vz_in_out[1])
+    if conservative:
+        out.E = np.where(inside_region, P_in_out[0], P_in_out[1])
+        out.mx = np.where(inside_region, vx_in_out[0], vx_in_out[1])
+        out.my = np.where(inside_region, vy_in_out[0], vy_in_out[1])
+        out.mz = np.where(inside_region, vz_in_out[0], vz_in_out[1])
+    else:
+        out.E = np.where(inside_region, P_in_out[0], P_in_out[1])
+        out.vx = np.where(inside_region, vx_in_out[0], vx_in_out[1])
+        out.vy = np.where(inside_region, vy_in_out[0], vy_in_out[1])
+        out.vz = np.where(inside_region, vz_in_out[0], vz_in_out[1])
     return out
