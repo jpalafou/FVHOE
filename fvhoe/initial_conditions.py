@@ -388,3 +388,50 @@ def shock_tube(
         out.vy = np.where(inside_region, vy_in_out[0], vy_in_out[1])
         out.vz = np.where(inside_region, vz_in_out[0], vz_in_out[1])
     return out
+
+
+def sedov(
+    x: np.ndarray, y: np.ndarray, z: np.ndarray, mode: str = "corner", dims: str = "xy"
+) -> NamedNumpyArray:
+    """
+    Sedov blast wave initial condition in conservative variable form
+    args:
+        x (array_like) : 3D mesh of x-points, shape (nx, ny, nz)
+        y (array_like) : 3D mesh of y-points, shape (nx, ny, nz)
+        z (array_like) : 3D mesh of z-points, shape (nx, ny, nz)
+        mode (str) : 'corner' or 'center'. if 'center', the blast is centered at the domain center
+    returns:
+        out (NamedNumpyArray) : has variable names ["rho", "vx", "vy", "vz", "P"]
+    """
+    # get mesh information
+    Nx, Ny, Nz = x.shape
+    ndim = sum([Nx > 1, Ny > 1, Nz > 1])
+    if len(dims) != ndim:
+        raise ValueError("dims must have the same length as the number of dimensions")
+    hx = np.mean(x[1:, :, :] - x[:-1, :, :]) if "x" in dims else 1
+    hy = np.mean(y[:, 1:, :] - y[:, :-1, :]) if "y" in dims else 1
+    hz = np.mean(z[:, :, 1:] - z[:, :, :-1]) if "z" in dims else 1
+
+    # define peak energy
+    Emax = (1 / ndim) / (hx * hy * hz)
+
+    # define initial conditions
+    out = empty_NamedArray(x.shape, "conservative")
+    out.rho = 1
+    out.mx = 0
+    out.my = 0
+    out.mz = 0
+    out.E = 1e-5
+
+    # place peak energy based on mode
+    if mode == "corner":
+        peak = (0, 0, 0)
+    elif mode == "center":
+        peak = (
+            slice(None) if "x" not in dims else slice(Nx // 2 - 1, Nx // 2 + 1),
+            slice(None) if "y" not in dims else slice(Ny // 2 - 1, Ny // 2 + 1),
+            slice(None) if "z" not in dims else slice(Nz // 2 - 1, Nz // 2 + 1),
+        )
+    out.E[peak] = Emax
+
+    return out

@@ -1,6 +1,6 @@
 from functools import partial
 from fvhoe.boundary_conditions import BoundaryCondition
-from fvhoe.initial_conditions import shock_tube
+from fvhoe.initial_conditions import sedov
 from fvhoe.solver import EulerSolver
 import numpy as np
 import pytest
@@ -10,7 +10,7 @@ from tests.test_utils import l1err
 @pytest.mark.parametrize("dims", ["xy", "yz", "zx", "xyz"])
 @pytest.mark.parametrize("rs", ["llf", "hllc"])
 @pytest.mark.parametrize("p", [0, 1])
-def test_reflection_symmetry(dims: str, rs: str, p: int, N: int = 16, t: float = 0.8):
+def test_reflection_symmetry(dims: str, rs: str, p: int, N: int = 16):
     """
     reflective boundary conditions should give the same result as a full domain. also check that the solution is symmetric
     args:
@@ -18,21 +18,16 @@ def test_reflection_symmetry(dims: str, rs: str, p: int, N: int = 16, t: float =
         rs (str) : riemann solver to use
         p (int) : polynomial interpolation degree
         N (int) : number of cells in each dimension
-        t (float) : time at solution
     """
-    # sedov blast problem in 2D
-    rho0 = 1
-    E0 = 1
-    gamma = 1.4
 
-    sedov_2d_configs = dict(
-        gamma=gamma,
+    sedov_configs = dict(
+        gamma=1.4,
         CFL=0.8,
         px=p if "x" in dims else 0,
         py=p if "y" in dims else 0,
         pz=p if "z" in dims else 0,
         riemann_solver=rs,
-        a_posteriori_slope_limiting=True,
+        a_posteriori_slope_limiting=p > 0,
         force_trouble=p > 0,
         slope_limiter="minmod",
         all_floors=True,
@@ -42,16 +37,7 @@ def test_reflection_symmetry(dims: str, rs: str, p: int, N: int = 16, t: float =
 
     # set up solvers
     solver_partial = EulerSolver(
-        w0=partial(
-            shock_tube,
-            mode="cube",
-            x_cube=(0, 1 / N) if "x" in dims else None,
-            y_cube=(0, 1 / N) if "y" in dims else None,
-            z_cube=(0, 1 / N) if "z" in dims else None,
-            rho_in_out=(rho0, rho0),
-            P_in_out=(0.25 * (N**2) * E0, 1e-5),
-            conservative=True,
-        ),
+        w0=partial(sedov, dims=dims, mode="corner"),
         bc=BoundaryCondition(
             x=("reflective", "outflow") if "x" in dims else None,
             y=("reflective", "outflow") if "y" in dims else None,
@@ -60,19 +46,10 @@ def test_reflection_symmetry(dims: str, rs: str, p: int, N: int = 16, t: float =
         nx=N if "x" in dims else 1,
         ny=N if "y" in dims else 1,
         nz=N if "z" in dims else 1,
-        **sedov_2d_configs,
+        **sedov_configs,
     )
     solver_full = EulerSolver(
-        w0=partial(
-            shock_tube,
-            mode="cube",
-            x_cube=(-1 / N, 1 / N) if "x" in dims else None,
-            y_cube=(-1 / N, 1 / N) if "y" in dims else None,
-            z_cube=(-1 / N, 1 / N) if "z" in dims else None,
-            rho_in_out=(rho0, rho0),
-            P_in_out=(0.25 * (N**2) * E0, 1e-5),
-            conservative=True,
-        ),
+        w0=partial(sedov, dims=dims, mode="center"),
         x=(-1, 1) if "x" in dims else (0, 1),
         y=(-1, 1) if "y" in dims else (0, 1),
         z=(-1, 1) if "z" in dims else (0, 1),
@@ -80,12 +57,12 @@ def test_reflection_symmetry(dims: str, rs: str, p: int, N: int = 16, t: float =
         nx=2 * N if "x" in dims else 1,
         ny=2 * N if "y" in dims else 1,
         nz=2 * N if "z" in dims else 1,
-        **sedov_2d_configs,
+        **sedov_configs,
     )
 
     # run solvers
-    solver_partial.rkorder(t)
-    solver_full.rkorder(t)
+    solver_partial.rkorder(0.8)
+    solver_full.rkorder(0.8)
 
     # check results
     w_partial = solver_partial.snapshots[-1]["w"]

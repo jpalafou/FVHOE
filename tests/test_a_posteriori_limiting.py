@@ -1,25 +1,26 @@
 from functools import partial
 from fvhoe.boundary_conditions import BoundaryCondition
-from fvhoe.initial_conditions import double_shock_1d, shock_tube
+from fvhoe.initial_conditions import double_shock_1d, sedov
 from fvhoe.solver import EulerSolver
+import numpy as np
 import pytest
 from tests.test_utils import l2err
 
 
-@pytest.mark.parametrize("N", [100])
 @pytest.mark.parametrize("p", [8])
-@pytest.mark.parametrize("convex", [False, True])
-def test_1d_symmetry(N: int, p: int, convex: bool):
+@pytest.mark.parametrize("rs", ["llf", "hllc"])
+@pytest.mark.parametrize(
+    "limiting_config", [dict(), dict(SED=True), dict(SED=True, convex=True)]
+)
+def test_1d_symmetry(p: int, rs: str, limiting_config: dict, N: int = 100):
     """
-    assert symmetry of 3D solver along 3 directions
+    use the double shock 1D problem to test that the 1D solver is symmetric in all dimensions
     args:
-        N (int) : 1D resolution
         p (int) : polynomial degree along axis of interest
-        convex (bool) : convex limiting
-        SED (bool) : use SED slope limiting
+        rs (str) : riemann solver
+        limiting_config (dict) : limiting configurations
+        N (int) : 1D resolution
     """
-
-    T = 0.038
 
     solutions = {}
     for dim in ["x", "y", "z"]:
@@ -31,19 +32,18 @@ def test_1d_symmetry(N: int, p: int, convex: bool):
             px=p if dim == "x" else 0,
             py=p if dim == "y" else 0,
             pz=p if dim == "z" else 0,
-            riemann_solver="hllc",
+            riemann_solver=rs,
             bc=BoundaryCondition(
                 x="reflective" if dim == "x" else "periodic",
                 y="reflective" if dim == "y" else "periodic",
                 z="reflective" if dim == "z" else "periodic",
             ),
             gamma=1.4,
-            a_posteriori_slope_limiting=True,
-            convex=convex,
             all_floors=True,
-            slope_limiter="minmod",
+            a_posteriori_slope_limiting=True,
+            **limiting_config,
         )
-        solver.rkorder(T)
+        solver.rkorder(0.038)
         solutions[dim] = solver
 
     xyerr = l2err(
@@ -59,43 +59,45 @@ def test_1d_symmetry(N: int, p: int, convex: bool):
     assert yzerr == 0
 
 
-@pytest.mark.parametrize("N", [32])
 @pytest.mark.parametrize("p", [8])
-@pytest.mark.parametrize("convex", [False, True])
-def test_2d_symmetry(N: int, p: int, convex: bool):
-    T = 0.3
+@pytest.mark.parametrize("rs", ["llf", "hllc"])
+@pytest.mark.parametrize(
+    "limiting_config", [dict(), dict(SED=True), dict(SED=True, convex=True)]
+)
+def test_2d_symmetry(p: int, rs: str, limiting_config: dict, N: int = 32):
+    """
+    use the 2D sedov blast problem to test that the 2D solver is symmetric in all dimensions
+    args:
+        p (int) : polynomial degree along axis of interest
+        rs (str) : riemann solver
+        limiting_config (dict) : limiting configurations
+        N (int) : 2D resolution
+    """
 
     solutions = {}
     for dims in ["xy", "yz", "zx"]:
         solver = EulerSolver(
-            w0=partial(
-                shock_tube,
-                mode="cube",
-                x_cube=(0, 1 / N) if "x" in dims else None,
-                y_cube=(0, 1 / N) if "y" in dims else None,
-                z_cube=(0, 1 / N) if "z" in dims else None,
-                rho_in_out=(1, 1),
-                P_in_out=(0.25 * (N**2) * (1.4 - 1), 1e-5),
-            ),
+            w0=partial(sedov, dims=dims),
+            conservative_ic=True,
+            fv_ic=True,
             nx=N if "x" in dims else 1,
             ny=N if "y" in dims else 1,
             nz=N if "z" in dims else 1,
             px=p if "x" in dims else 0,
             py=p if "y" in dims else 0,
             pz=p if "z" in dims else 0,
-            riemann_solver="llf",
+            riemann_solver=rs,
             bc=BoundaryCondition(
-                x=("reflective", "free") if "x" in dims else None,
-                y=("reflective", "free") if "y" in dims else None,
-                z=("reflective", "free") if "z" in dims else None,
+                x=("reflective", "outflow") if "x" in dims else None,
+                y=("reflective", "outflow") if "y" in dims else None,
+                z=("reflective", "outflow") if "z" in dims else None,
             ),
             gamma=1.4,
-            a_posteriori_slope_limiting=True,
-            convex=convex,
             all_floors=True,
-            slope_limiter="minmod",
+            a_posteriori_slope_limiting=True,
+            **limiting_config,
         )
-        solver.rkorder(T)
+        solver.rkorder(0.3)
         solutions[dims] = solver
 
     xy_yz_err = l2err(
@@ -109,3 +111,45 @@ def test_2d_symmetry(N: int, p: int, convex: bool):
 
     assert xy_yz_err == 0
     assert yz_zx_err == 0
+
+
+@pytest.mark.parametrize("p", [7])
+@pytest.mark.parametrize("NAD", [0, 1e-3, 1e-5])
+def test_NAD(p: int, NAD: float, N: int = 32):
+    """
+    use the 2D sedov blast problem to test that the NAD "only" and NAD "any" modes are consistent
+    args:
+        N:      number of cells in each dimension
+        p:      polynomial degree
+        NAD:    NAD tolerance
+    """
+    # initialize solvers
+    solver_configs = dict(
+        w0=partial(sedov, dims="xy"),
+        conservative_ic=True,
+        fv_ic=True,
+        gamma=1.4,
+        bc=BoundaryCondition(x=("reflective", "outflow"), y=("reflective", "outflow")),
+        CFL=0.8,
+        nx=N,
+        ny=N,
+        px=p,
+        py=p,
+        riemann_solver="hllc",
+        a_posteriori_slope_limiting=True,
+        slope_limiter="minmod",
+        NAD=NAD,
+        all_floors=True,
+        cupy=False,
+    )
+    solver_any = EulerSolver(**solver_configs, NAD_mode="any")
+    solver_only = EulerSolver(
+        **solver_configs, NAD_mode="only", NAD_vars=["rho", "P", "vx", "vy"]
+    )
+
+    # run solvers
+    solver_any.rkorder(0.05)
+    solver_only.rkorder(0.05)
+
+    # compare results
+    assert np.all(solver_any.snapshots[-1]["w"] == solver_only.snapshots[-1]["w"])
