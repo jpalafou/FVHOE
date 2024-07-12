@@ -7,10 +7,19 @@ import pytest
 from tests.test_utils import l1err
 
 
-@pytest.mark.parametrize("dims", ["xy", "yz", "zx"])
+@pytest.mark.parametrize("dims", ["xy", "yz", "zx", "xyz"])
 @pytest.mark.parametrize("rs", ["llf", "hllc"])
 @pytest.mark.parametrize("p", [0, 1])
-def test_2D(dims: str, rs: str, p: int, N: int = 16, t: float = 0.8):
+def test_reflection_symmetry(dims: str, rs: str, p: int, N: int = 16, t: float = 0.8):
+    """
+    reflective boundary conditions should give the same result as a full domain. also check that the solution is symmetric
+    args:
+        dims (str) : dimensions to test
+        rs (str) : riemann solver to use
+        p (int) : polynomial interpolation degree
+        N (int) : number of cells in each dimension
+        t (float) : time at solution
+    """
     # sedov blast problem in 2D
     rho0 = 1
     E0 = 1
@@ -26,7 +35,6 @@ def test_2D(dims: str, rs: str, p: int, N: int = 16, t: float = 0.8):
         a_posteriori_slope_limiting=True,
         force_trouble=p > 0,
         slope_limiter="minmod",
-        NAD=1e-3,
         all_floors=True,
         conservative_ic=True,
         fv_ic=True,
@@ -81,17 +89,20 @@ def test_2D(dims: str, rs: str, p: int, N: int = 16, t: float = 0.8):
 
     # check results
     w_partial = solver_partial.snapshots[-1]["w"]
-    w_full = solver_full.snapshots[-1]["w"]
-    slices = (
+    w_full = solver_full.snapshots[-1]["w"][
+        :,
         slice(N, None) if "x" in dims else slice(None),
         slice(N, None) if "y" in dims else slice(None),
         slice(N, None) if "z" in dims else slice(None),
-    )
+    ]
 
-    rho_err = l1err(w_partial.rho, w_full.rho[slices])
-    P_err = l1err(w_partial.P, w_full.P[slices])
-    vx_err = l1err(w_partial.vx, w_full.vx[slices])
-    vy_err = l1err(w_partial.vy, w_full.vy[slices])
-    vz_err = l1err(w_partial.vz, w_full.vz[slices])
+    # check reflection equivalence
+    assert l1err(w_partial.P, w_full.P) < 1e-15
 
-    assert np.all(np.array([rho_err, P_err, vx_err, vy_err, vz_err]) < 1e-15)
+    # check symmetry of partial solution
+    if "x" in dims and "y" in dims:
+        assert l1err(w_partial.P, np.swapaxes(w_partial.P, 0, 1)) < 1e-15
+    if "y" in dims and "z" in dims:
+        assert l1err(w_partial.P, np.swapaxes(w_partial.P, 1, 2)) < 1e-15
+    if "z" in dims and "x" in dims:
+        assert l1err(w_partial.P, np.swapaxes(w_partial.P, 2, 0)) < 1e-15
