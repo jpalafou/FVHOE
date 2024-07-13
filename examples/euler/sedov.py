@@ -1,4 +1,5 @@
 import numpy as np
+from typing import Tuple
 
 
 def sedovana(gamma: float = 1.4, dim: int = 1, n1: int = 1000, n2: int = 1000):
@@ -160,3 +161,39 @@ def sedovana(gamma: float = 1.4, dim: int = 1, n1: int = 1000, n2: int = 1000):
     p = p * chi0**2
 
     return r, d, u, p
+
+
+def sedov_rduP(
+    dim: int = 1,
+    t: float = 1.0,
+    gamma: float = 1.4,
+    E0: float = 1.0,
+    rho0: float = 1.0,
+    n1: int = 100000,
+    n2: int = 100000,
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """
+    return the Sedov solution at time t for a given energy E0 and density rho0
+    args:
+        dim (int) : dimensionality of the problem (default: 1)
+        t (float) : time at which to evaluate the solution (default: 1.0)
+        gamma (float) : adiabatic exponent of the fluid (default: 1.4)
+        E0 (float) : total energy of the explosion (default: 1.0)
+        rho0 (float) : initial mass density (default: 1.0)
+        n1 (int) : number of points in the first region (default: 100000)
+        n2 (int) : number of points in the second region (default: 100000)
+    returns:
+        r (array_like) : position from the point like explosion, shape (n1+n2+2,)
+        d (array_like) : density, shape (n1+n2+2,)
+        u (array_like) : velocity, shape (n1+n2+2,)
+        P (array_like) : pressure, shape (n1+n2+2,)
+    """
+
+    r, d, u, P = sedovana(gamma=gamma, dim=dim, n1=n1, n2=n2)
+
+    r *= (E0 / rho0) ** (1 / (dim + 2)) * t ** (2 / (dim + 2))
+    d *= rho0
+    u *= (E0 / rho0) ** (1 / (dim + 2)) * t ** (-dim / (dim + 2))
+    P *= (E0 / rho0) ** (2 / (dim + 2)) * t ** (-2 * dim / (dim + 2)) * rho0
+
+    return r, d, u, P

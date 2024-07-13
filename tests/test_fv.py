@@ -58,3 +58,11 @@ def test_interpolation_symmetry(transformation: callable, p: int, N: int = 128):
     assert l1err(data2[:, : M // 2, :, :], data2[:, : M // 2 - 1 : -1, :, :]) < 1e-15
     assert l1err(data2[:, :, : M // 2, :], data2[:, :, : M // 2 - 1 : -1, :]) < 1e-15
     assert l1err(data2[:, :, :, : M // 2], data2[:, :, :, : M // 2 - 1 : -1]) < 1e-15
+    assert (
+        l1err(data2[:, : M // 2, :, :], np.swapaxes(data2[:, :, : M // 2, :], 1, 2))
+        < 1e-15
+    )
+    assert (
+        l1err(data2[:, : M // 2, :, :], np.swapaxes(data2[:, :, :, : M // 2], 1, 3))
+        < 1e-15
+    )

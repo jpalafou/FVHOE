@@ -395,6 +395,7 @@ def sedov(
 ) -> NamedNumpyArray:
     """
     Sedov blast wave initial condition in conservative variable form
+    run with conservative_ic=True and fv_ic=True
     args:
         x (array_like) : 3D mesh of x-points, shape (nx, ny, nz)
         y (array_like) : 3D mesh of y-points, shape (nx, ny, nz)
@@ -403,17 +404,15 @@ def sedov(
     returns:
         out (NamedNumpyArray) : has variable names ["rho", "vx", "vy", "vz", "P"]
     """
-    # get mesh information
+    # get mesh info and peak mesh energy
     Nx, Ny, Nz = x.shape
-    ndim = sum([Nx > 1, Ny > 1, Nz > 1])
-    if len(dims) != ndim:
-        raise ValueError("dims must have the same length as the number of dimensions")
-    hx = np.mean(x[1:, :, :] - x[:-1, :, :]) if "x" in dims else 1
-    hy = np.mean(y[:, 1:, :] - y[:, :-1, :]) if "y" in dims else 1
-    hz = np.mean(z[:, :, 1:] - z[:, :, :-1]) if "z" in dims else 1
-
-    # define peak energy
-    Emax = (1 / ndim) / (hx * hy * hz)
+    hx = np.mean(x[1:, :, :] - x[:-1, :, :])
+    hy = np.mean(y[:, 1:, :] - y[:, :-1, :])
+    hz = np.mean(z[:, :, 1:] - z[:, :, :-1])
+    Emax = 1.0
+    Emax /= 2 * hx if "x" in dims else 1
+    Emax /= 2 * hy if "y" in dims else 1
+    Emax /= 2 * hz if "z" in dims else 1
 
     # define initial conditions
     out = empty_NamedArray(x.shape, "conservative")
