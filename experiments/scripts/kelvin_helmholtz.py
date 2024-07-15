@@ -1,13 +1,18 @@
-from functools import partial
 from fvhoe.boundary_conditions import BoundaryCondition
-from fvhoe.initial_conditions import shock_tube_2d
+from fvhoe.initial_conditions import kelvin_helmholtz_2d
 from fvhoe.solver import EulerSolver
 import matplotlib.pyplot as plt
 import numpy as np
 import os
 
-N = 128
-p = 0
+T = 0.8
+n_snapshots = 2
+N = 2048
+p = 3
+NAD = 1e-2
+SED = False
+snapshot_dir = f"kelvin-helmholtz_{N=}_{p=}_{NAD=}_{SED=}"
+snapshot_dir += "/scratch/gpfs/jp7427/fvhoe/snapshots/"
 
 
 def snapshot_helper_function(s):
@@ -32,35 +37,34 @@ def snapshot_helper_function(s):
     ax[1, 0].set_xlabel("$x$")
     ax[1, 1].set_xlabel("$x$")
 
-    if not os.path.exists("snapshots/sedov-blast"):
-        os.makedirs("snapshots/sedov-blast")
+    if not os.path.exists(f"snapshots/{snapshot_dir}"):
+        os.makedirs(f"snapshots/{snapshot_dir}")
 
-    plt.savefig(f"snapshots/sedov-blast/t={s.t:.2f}.png", dpi=300, bbox_inches="tight")
+    plt.savefig(
+        f"snapshots/{snapshot_dir}/t={s.t:.2f}.png", dpi=300, bbox_inches="tight"
+    )
 
 
 solver = EulerSolver(
-    w0=partial(shock_tube_2d, radius=0.05, rho_in_out=(1, 1e-3), P_in_out=(1, 1e-5)),
+    w0=kelvin_helmholtz_2d,
     nx=N,
     ny=N,
     px=p,
     py=p,
-    CFL=0.4,
+    CFL=0.8,
     riemann_solver="hllc",
-    bc=BoundaryCondition(x="free", y="free"),
+    bc=BoundaryCondition(x="periodic", y="periodic"),
     gamma=1.4,
-    density_floor=False,
-    pressure_floor=False,
-    rho_P_sound_speed_floor=False,
-    a_posteriori_slope_limiting=False,
+    a_posteriori_slope_limiting=True,
     slope_limiter="minmod",
+    NAD=NAD,
+    SED=SED,
     cupy=True,
     snapshot_helper_function=snapshot_helper_function,
 )
 
-T = 0.2
 solver.rkorder(
-    T,
-    downbeats=np.linspace(0, T, 21).tolist()[1:-1],
-    filename="sedov-blast",
-    overwrite=True,
+    T=T,
+    downbeats=np.linspace(0, T, n_snapshots),
+    snapshot_dir=snapshot_dir,
 )

@@ -121,9 +121,9 @@ def slotted_disk(
     args:
         x (array_like) : 3D mesh of x-points, shape (nx, ny, nz)
         y (array_like) : 3D mesh of y-points, shape (nx, ny, nz)
+        z (array_like) : 3D mesh of z-points, shape (nx, ny, nz)
         rho_min_max (Tuple[float, float]) : min density (outside disk), max density (inside disk)
         P (float) : uniform pressure
-        kwargs : for dimensions not used in the disk
     returns:
         out (NamedNumpyArray) : has variable names ["rho", "vx", "vy", "vz", "P"]
     """
@@ -401,6 +401,7 @@ def sedov(
         y (array_like) : 3D mesh of y-points, shape (nx, ny, nz)
         z (array_like) : 3D mesh of z-points, shape (nx, ny, nz)
         mode (str) : 'corner' or 'center'. if 'center', the blast is centered at the domain center
+        dims (str) : contains "x", "y", and/or "z"
     returns:
         out (NamedNumpyArray) : has variable names ["rho", "vx", "vy", "vz", "P"]
     """
@@ -432,5 +433,32 @@ def sedov(
             slice(None) if "z" not in dims else slice(Nz // 2 - 1, Nz // 2 + 1),
         )
     out.E[peak] = Emax
+
+    return out
+
+
+def athena_blast(x: np.ndarray, y: np.ndarray, z: np.ndarray) -> NamedNumpyArray:
+    """
+    Athena test blast https://www.astro.princeton.edu/~jstone/Athena/tests/blast/blast.html
+    x in [-0.5, 0.5]
+    y in [-0.75, 0.75]
+    periodic boundary conditions
+    args:
+        x (array_like) : 3D mesh of x-points, shape (nx, ny, nz)
+        y (array_like) : 3D mesh of y-points, shape (nx, ny, nz)
+        z (array_like) : 3D mesh of z-points, shape (nx, ny, nz)
+    returns:
+        out (NamedNumpyArray) : has variable names ["rho", "vx", "vy", "vz", "P"]
+    """
+    # radius centered at (0, 0)
+    r = np.sqrt(np.square(x) + np.square(y))
+
+    # define initial conditions
+    out = empty_NamedArray(x.shape)
+    out.rho = 1
+    out.vx = 0
+    out.vy = 0
+    out.vz = 0
+    out.P = np.where(r < 0.1, 10, 0.1)
 
     return out
