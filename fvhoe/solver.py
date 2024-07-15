@@ -9,6 +9,7 @@ from fvhoe.fv import (
     transverse_reconstruction,
 )
 from fvhoe.hydro import compute_conservatives, compute_primitives, hydro_dt
+from fvhoe.initial_conditions import square
 from fvhoe.named_array import NamedCupyArray, NamedNumpyArray
 from fvhoe.ode import ODE
 from fvhoe.riemann_solvers import advection_upwind, hllc, llf
@@ -38,8 +39,8 @@ except Exception:
 class EulerSolver(ODE):
     def __init__(
         self,
-        w0: callable,
-        nx: int,
+        w0: callable = square,
+        nx: int = 1,
         ny: int = 1,
         nz: int = 1,
         px: int = 0,
