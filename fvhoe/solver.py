@@ -19,6 +19,7 @@ from fvhoe.slope_limiting import (
     MUSCL_interpolations,
 )
 from fvhoe.visualization import plot_1d_slice, plot_2d_slice
+from itertools import product
 import json
 import os
 import shutil
@@ -60,7 +61,7 @@ class EulerSolver(ODE):
         a_posteriori_slope_limiting: bool = False,
         slope_limiter: str = "minmod",
         force_trouble: bool = False,
-        NAD: float = 1e-5,
+        NAD: float = 1e-2,
         NAD_mode: str = "any",
         NAD_vars: list = None,
         PAD: dict = None,
@@ -184,6 +185,21 @@ class EulerSolver(ODE):
         self.cupy = cupy
         self.NamedArray = NamedCupyArray if cupy else NamedNumpyArray
 
+        # initial conditions
+        self.w0 = w0
+        if conservative_ic:
+            u0 = w0
+        else:
+
+            def u0(x, y, z):
+                return compute_conservatives(w0(x, y, z), gamma=self.gamma)
+
+        if fv_ic:
+            u0_fv = u0(x=self.X, y=self.Y, z=self.Z)
+        else:
+            u0_fv = fv_average(f=u0, x=self.X, y=self.Y, z=self.Z, h=self.h, p=self.p)
+        u0_fv = self.NamedArray(u0_fv, u0_fv.variable_names)
+
         # boundary conditions
         bc = BoundaryCondition() if bc is None else bc
         self.bc = BoundaryCondition(
@@ -199,22 +215,20 @@ class EulerSolver(ODE):
             z_domain=self.z_domain,
             h=self.h,
         )
+        # set initial condition boundaries
+        any_ic_bc = False
+        for dim, i in product(["x", "y", "z"], (0, 1)):
+            if getattr(self.bc, dim)[i] == {var: "ic" for var in conservative_names}:
+                any_ic_bc = True
+                dim_value = getattr(self.bc, f"{dim}_value")
+                dim_value[i] = {var: u0 for var in conservative_names}
+                setattr(self.bc, f"{dim}_value", dim_value)
+        if any_ic_bc and fv_ic:
+            print(
+                "Warning: initial condition function returns finite volume averages and is being used to apply boundary conditions."
+            )
 
-        # integrator
-        self.w0 = w0
-        if conservative_ic:
-            u0 = w0
-        else:
-
-            def u0(x, y, z):
-                return compute_conservatives(w0(x, y, z), gamma=self.gamma)
-
-        if fv_ic:
-            u0_fv = u0(x=self.X, y=self.Y, z=self.Z)
-        else:
-            u0_fv = fv_average(f=u0, x=self.X, y=self.Y, z=self.Z, h=self.h, p=self.p)
-        u0_fv = self.NamedArray(u0_fv, u0_fv.variable_names)
-
+        # inegrator class init
         super().__init__(u0_fv, progress_bar=progress_bar)
 
         # fixed velocity

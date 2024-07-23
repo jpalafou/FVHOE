@@ -24,7 +24,7 @@ def set_dirichlet_bc(
     x: np.ndarray = None,
     y: np.ndarray = None,
     z: np.ndarray = None,
-    t: float = None,
+    **kwargs,
 ) -> None:
     """
     set Dirichlet boundaries
@@ -32,7 +32,7 @@ def set_dirichlet_bc(
         f (callable, float) : defines boundary values
             f(x, y, z, t) (callable) : boundary function
             f (float) : uniform boundary
-        u (array_like) : padded array of shape (nx, ny, nz)
+        u (array_like) : padded array for one variable with shape (nx, ny, nz) or all variables with shape (# vars, nx, ny, nz)
         num_ghost (int) : number of 'ghost zones' on pos end of domain
         dim (str) : dimension
             "x" : axis = 0
@@ -44,17 +44,21 @@ def set_dirichlet_bc(
         x (array_like) : mesh of x-values, has shape (nx, ny, nz)
         y (array_like) : mesh of y-values, has shape (nx, ny, nz)
         z (array_like) : mesh of z-values, has shape (nx, ny, nz)
+        kwargs : additional arguments for f
     returns:
         u : (array_like) : u with boundary conditions applied
     """
-    gv = partial(get_view, ndim=u.ndim, axis={"x": 0, "y": 1, "z": 2}[dim])
+    axis = {"x": 0, "y": 1, "z": 2}[dim]
+    gv = partial(get_view, ndim=3, axis=axis)
+    gv_u = partial(get_view, ndim=u.ndim, axis=axis + (0 if u.ndim == 3 else 1))
+
     x = np.array([]) if None else x
     y = np.array([]) if None else y
     z = np.array([]) if None else z
 
     # if setting left side boundary: reflect, compute right boundary, reflect again
     if pos == "l":
-        u[...] = u[gv(step=-1)]
+        u[...] = u[gv_u(step=-1)]
         x, y, z = x[gv(step=-1)], y[gv(step=-1)], z[gv(step=-1)]
         set_dirichlet_bc(
             f=f,
@@ -65,21 +69,21 @@ def set_dirichlet_bc(
             x=x,
             y=y,
             z=z,
-            t=t,
+            **kwargs,
         )
-        u[...] = u[gv(step=-1)]
+        u[...] = u[gv_u(step=-1)]
         x, y, z = x[gv(step=-1)], y[gv(step=-1)], z[gv(step=-1)]
         return u
 
     # set right side boundary
     if num_ghost > 0:
-        boundary_view = gv(cut=(-num_ghost, 0))
         if callable(f):
+            boundary_view = gv(cut=(-num_ghost, 0))
             x_bc, y_bc, z_bc = x[boundary_view], y[boundary_view], z[boundary_view]
-            boundary_values = f(x_bc, y_bc, z_bc, t)
+            boundary_values = f(x_bc, y_bc, z_bc, **kwargs)
         else:
             boundary_values = f
-        u[boundary_view] = boundary_values
+        u[gv_u(cut=(-num_ghost, 0))] = boundary_values
     return u
 
 
@@ -209,6 +213,7 @@ VALID_BC_TYPES = {
     None,
     "dirichlet",
     "free",
+    "ic",
     "outflow",
     "periodic",
     "special-case-double-mach-reflection-y=0",
@@ -296,7 +301,13 @@ class BoundaryCondition:
                         raise ValueError(
                             f"Invalid boundary condition '{bc_type[i][var]}' for variable '{var}'"
                         )
-            setattr(self, dim, tuple(bc_type))  # return immutable
+                    if bc_type[i][var] == "ic" and any(
+                        varbc != "ic" for varbc in bc_type[i].values()
+                    ):
+                        raise ValueError(
+                            "Boundary condition type 'ic' must be set for all variables."
+                        )
+            setattr(self, dim, bc_type)  # return immutable
 
         # configure bc values
         for dim in {"x", "y", "z"}:
@@ -331,7 +342,7 @@ class BoundaryCondition:
                         raise ValueError(
                             f"Boundary condition value must be specified for dirichlet boundary condition for variable '{var}'"
                         )
-            setattr(self, f"{dim}_value", tuple(bc_value))  # return immutable
+            setattr(self, f"{dim}_value", bc_value)  # return immutable
 
     def apply(
         self,
@@ -370,7 +381,7 @@ class BoundaryCondition:
             | set(self.z[0].values())
             | set(self.z[1].values())
         )
-        if "dirichlet" in all_bc_types:
+        if "dirichlet" in all_bc_types or "ic" in all_bc_types:
             nx, ny, nz = out.shape[1:]
             X, Y, Z = uniform_fv_mesh(
                 nx=nx,
@@ -395,6 +406,7 @@ class BoundaryCondition:
                 Z = cp.asarray(Z)
 
         # define views for each boundary region
+        ALREADY_APPLIED_IC_BOUNDARY = {}
         ALREADY_APPLIED_PERIODIC_BOUNDARY = {}
         for var, (j, dim), (i, pos) in product(
             u.variable_names, enumerate(["x", "y", "z"]), enumerate(["l", "r"])
@@ -423,6 +435,20 @@ class BoundaryCondition:
                     ubc = set_free_bc(
                         u=getattr(out, var), num_ghost=num_ghost, dim=dim, pos=pos
                     )
+                case "ic":
+                    if ALREADY_APPLIED_IC_BOUNDARY.get(f"{dim}{i}", False):
+                        continue
+                    ubc = set_dirichlet_bc(
+                        f=bc_value,
+                        u=out,
+                        num_ghost=num_ghost,
+                        dim=dim,
+                        pos=pos,
+                        x=X,
+                        y=Y,
+                        z=Z,
+                    )
+                    ALREADY_APPLIED_IC_BOUNDARY[f"{dim}{i}"] = True
                 case "periodic":
                     if ALREADY_APPLIED_PERIODIC_BOUNDARY.get(f"{var}{dim}", False):
                         continue
@@ -459,7 +485,10 @@ class BoundaryCondition:
                 case _:
                     raise TypeError(f"Invalid boundary condition '{bc}'")
 
-            setattr(out, var, ubc)
+            if bc == "ic":
+                out[...] = ubc
+            else:
+                setattr(out, var, ubc)
 
         if np.any(np.isnan(out)):
             raise ValueError("Boundary conditions not applied correctly.")

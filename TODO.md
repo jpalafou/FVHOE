@@ -1,8 +1,5 @@
-reflection symmetry test 2D, 3D
-
-higher-dimensional sedov examples
-
-"ic" boundary condition
+RuntimeWarning: invalid value encountered in sqrt
+  out = np.sqrt(gamma * P / rho)
 
 Should I pre-allocate arrays ?
 

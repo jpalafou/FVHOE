@@ -278,7 +278,10 @@ def kelvin_helmholtz_2d(
 
 
 def double_mach_reflection_2d(
-    x: np.ndarray, y: np.ndarray = None, z: np.ndarray = None
+    x: np.ndarray,
+    y: np.ndarray = None,
+    z: np.ndarray = None,
+    gamma: float = 1.4,
 ) -> np.ndarray:
     """
     Double Mach reflection
@@ -286,13 +289,13 @@ def double_mach_reflection_2d(
         x (array_like) : 3D mesh of x-points, shape (nx, ny, nz)
         y (array_like) : 3D mesh of y-points, shape (nx, ny, nz)
         z (array_like) : 3D mesh of z-points, shape (nx, ny, nz)
+        gamma (float) : specific heat ratio
     returns:
         out (NamedNumpyArray) : has variable names ["rho", "vx", "vy", "vz", "P"]
     """
     xc = 1 / 6
     theta = np.pi / 3
     xp = x - y / np.tan(theta)
-    gamma = 1.4
     out = empty_NamedArray(x.shape)
     out.rho = np.where(xp < xc, 8, gamma)
     out.vx = np.where(xp < xc, 7.145, 0)

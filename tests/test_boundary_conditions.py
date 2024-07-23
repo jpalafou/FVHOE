@@ -1,9 +1,12 @@
+from functools import partial
 from fvhoe.boundary_conditions import BoundaryCondition
 from fvhoe.config import conservative_names
+from fvhoe.initial_conditions import shu_osher_1d
 from fvhoe.named_array import NamedNumpyArray
+from fvhoe.solver import EulerSolver
 import numpy as np
 import pytest
-from tests.test_utils import meshgen
+from tests.test_utils import l1err, meshgen
 
 
 @pytest.fixture
@@ -192,3 +195,76 @@ def test_dirichlet_f_of_xyzt(N: int = 64, gw: int = 10, t: float = 0.5):
     )
 
     assert np.all(bc.apply(arr, gw=(gw, gw, gw), t=t) == arr_all)
+
+
+@pytest.mark.parametrize("dim", ["x", "y", "z"])
+@pytest.mark.parametrize("p", [0, 1, 2, 3, 8])
+def test_ic_bc(dim: str, p: int, N: int = 100, gamma: float = 1.4, T: float = 1.8):
+    """ """
+    # set up solvers
+    solver_configs = dict(
+        w0=partial(shu_osher_1d, dim=dim),
+        x=(0, 10) if dim == "x" else (0, 1),
+        y=(0, 10) if dim == "y" else (0, 1),
+        z=(0, 10) if dim == "z" else (0, 1),
+        nx=N if dim == "x" else 1,
+        ny=N if dim == "y" else 1,
+        nz=N if dim == "z" else 1,
+        px=p if dim == "x" else 0,
+        py=p if dim == "y" else 0,
+        pz=p if dim == "z" else 0,
+        riemann_solver="hllc",
+        gamma=gamma,
+        a_posteriori_slope_limiting=p > 0,
+        slope_limiter="minmod",
+    )
+
+    # dirichlet bc
+    dirichlet_dicts = (
+        {
+            "rho": 3.857143,
+            "mx": 3.857143 * 2.629369 if dim == "x" else 0,
+            "my": 3.857143 * 2.629369 if dim == "y" else 0,
+            "mz": 3.857143 * 2.629369 if dim == "z" else 0,
+            "E": 10.33333 / (gamma - 1) + 0.5 * 3.857143 * 2.629369 * 2.629369,
+        },
+        {
+            "rho": 1 + 0.2 * np.sin(5 * 5),
+            "mx": 0,
+            "my": 0,
+            "mz": 0,
+            "E": 1 / (gamma - 1),
+        },
+    )
+
+    solver_dirichlet = EulerSolver(
+        bc=BoundaryCondition(
+            x="dirichlet" if dim == "x" else None,
+            x_value=dirichlet_dicts if dim == "x" else None,
+            y="dirichlet" if dim == "y" else None,
+            y_value=dirichlet_dicts if dim == "y" else None,
+            z="dirichlet" if dim == "z" else None,
+            z_value=dirichlet_dicts if dim == "z" else None,
+        ),
+        **solver_configs,
+    )
+
+    # ic bc
+    solver_ic = EulerSolver(
+        bc=BoundaryCondition(
+            x="ic" if dim == "x" else None,
+            y="ic" if dim == "y" else None,
+            z="ic" if dim == "z" else None,
+        ),
+        **solver_configs,
+    )
+
+    # run solvers
+    solver_dirichlet.rkorder(T)
+    solver_ic.rkorder(T)
+
+    # compare solvers
+    assert (
+        l1err(solver_dirichlet.snapshots[-1]["w"].P, solver_ic.snapshots[-1]["w"].P)
+        < 4e-15
+    )
