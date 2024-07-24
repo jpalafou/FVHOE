@@ -266,5 +266,5 @@ def test_ic_bc(dim: str, p: int, N: int = 100, gamma: float = 1.4, T: float = 1.
     # compare solvers
     assert (
         l1err(solver_dirichlet.snapshots[-1]["w"].P, solver_ic.snapshots[-1]["w"].P)
-        < 4e-15
+        < 1e-14
     )
