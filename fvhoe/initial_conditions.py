@@ -394,7 +394,14 @@ def shock_tube(
 
 
 def sedov(
-    x: np.ndarray, y: np.ndarray, z: np.ndarray, mode: str = "corner", dims: str = "xy"
+    x: np.ndarray,
+    y: np.ndarray,
+    z: np.ndarray,
+    mode: str = "corner",
+    dims: str = "xy",
+    rho0: float = 1.0,
+    E0: float = 1e-5,
+    E1: float = 1.0,
 ) -> NamedNumpyArray:
     """
     Sedov blast wave initial condition in conservative variable form
@@ -405,6 +412,9 @@ def sedov(
         z (array_like) : 3D mesh of z-points, shape (nx, ny, nz)
         mode (str) : 'corner' or 'center'. if 'center', the blast is centered at the domain center
         dims (str) : contains "x", "y", and/or "z"
+        rho0 (float) : background pressure
+        E0 (float) : background energy
+        E1 (float) : peak energy
     returns:
         out (NamedNumpyArray) : has variable names ["rho", "vx", "vy", "vz", "P"]
     """
@@ -413,18 +423,18 @@ def sedov(
     hx = np.mean(x[1:, :, :] - x[:-1, :, :])
     hy = np.mean(y[:, 1:, :] - y[:, :-1, :])
     hz = np.mean(z[:, :, 1:] - z[:, :, :-1])
-    Emax = 1.0
+    Emax = E1
     Emax /= 2 * hx if "x" in dims else 1
     Emax /= 2 * hy if "y" in dims else 1
     Emax /= 2 * hz if "z" in dims else 1
 
     # define initial conditions
     out = empty_NamedArray(x.shape, "conservative")
-    out.rho = 1
+    out.rho = rho0
     out.mx = 0
     out.my = 0
     out.mz = 0
-    out.E = 1e-5
+    out.E = E0
 
     # place peak energy based on mode
     if mode == "corner":
