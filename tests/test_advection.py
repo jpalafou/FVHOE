@@ -7,7 +7,7 @@ from tests.test_utils import l2err
 
 
 @pytest.mark.parametrize("f0", [sinus, square])
-@pytest.mark.parametrize("p", [0, 1, 2, 3, 4, 7, 8])
+@pytest.mark.parametrize("p", [0, 1, 2, 3, 4, 5, 6, 7, 8])
 def test_1d_advection_symmetry(f0: callable, p: int, N: int = 64, t: float = 1):
     """
     assert symmetry of 3D solver along 3 directions
@@ -59,7 +59,7 @@ def test_1d_advection_symmetry(f0: callable, p: int, N: int = 64, t: float = 1):
     assert yzerr == 0
 
 
-@pytest.mark.parametrize("p", [0, 1, 2, 3, 4, 7, 8])
+@pytest.mark.parametrize("p", [0, 1, 2, 3, 4, 5, 6, 7, 8])
 def test_2d_advection_symmetry(p, N=32, t: float = 1):
     """
     assert symmetry of 3D solver along 3 planes

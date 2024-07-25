@@ -141,6 +141,48 @@ def conservative_interpolation(
                     + -116 * fvarr[gv(cut=(3, 1))]
                     + 9 * fvarr[gv(cut=(4, 0))]
                 ) / 1920
+        case 5:
+            if pos == "l":
+                out = (
+                    (1 / 120) * fvarr[gv(cut=(0, 6))]
+                    + (-1 / 12) * fvarr[gv(cut=(1, 5))]
+                    + (59 / 120) * fvarr[gv(cut=(2, 4))]
+                    + (47 / 60) * fvarr[gv(cut=(3, 3))]
+                    + (-31 / 120) * fvarr[gv(cut=(4, 2))]
+                    + (1 / 15) * fvarr[gv(cut=(5, 1))]
+                    + (-1 / 120) * fvarr[gv(cut=(6, 0))]
+                )
+            elif pos == "c":
+                out = (
+                    0 * fvarr[gv(cut=(0, 6))]
+                    + (3 / 640) * fvarr[gv(cut=(1, 5))]
+                    + (-29 / 480) * fvarr[gv(cut=(2, 4))]
+                    + (1067 / 960) * fvarr[gv(cut=(3, 3))]
+                    + (-29 / 480) * fvarr[gv(cut=(4, 2))]
+                    + (3 / 640) * fvarr[gv(cut=(5, 1))]
+                    + 0 * fvarr[gv(cut=(6, 0))]
+                )
+        case 6:
+            if pos == "l":
+                out = (
+                    (1 / 105) * fvarr[gv(cut=(0, 6))]
+                    + (-19 / 210) * fvarr[gv(cut=(1, 5))]
+                    + (107 / 210) * fvarr[gv(cut=(2, 4))]
+                    + (319 / 420) * fvarr[gv(cut=(3, 3))]
+                    + (-101 / 420) * fvarr[gv(cut=(4, 2))]
+                    + (5 / 84) * fvarr[gv(cut=(5, 1))]
+                    + (-1 / 140) * fvarr[gv(cut=(6, 0))]
+                )
+            elif pos == "c":
+                out = (
+                    (-5 / 7168) * fvarr[gv(cut=(0, 6))]
+                    + (159 / 17920) * fvarr[gv(cut=(1, 5))]
+                    + (-7621 / 107520) * fvarr[gv(cut=(2, 4))]
+                    + (30251 / 26880) * fvarr[gv(cut=(3, 3))]
+                    + (-7621 / 107520) * fvarr[gv(cut=(4, 2))]
+                    + (159 / 17920) * fvarr[gv(cut=(5, 1))]
+                    + (-5 / 7168) * fvarr[gv(cut=(6, 0))]
+                )
         case 7:
             if pos == "l":
                 out = (
@@ -236,6 +278,26 @@ def transverse_reconstruction(u: np.ndarray, p: int, axis: int) -> np.ndarray:
                 + 308 * u[gv(cut=(3, 1))]
                 + -17 * u[gv(cut=(4, 0))]
             ) / 5760
+        case 5:
+            out = (
+                0 * u[gv(cut=(0, 6))]
+                + -17 * u[gv(cut=(1, 5))]
+                + 308 * u[gv(cut=(2, 4))]
+                + 5178 * u[gv(cut=(3, 3))]
+                + 308 * u[gv(cut=(4, 2))]
+                + -17 * u[gv(cut=(5, 1))]
+                + 0 * u[gv(cut=(6, 0))]
+            ) / 5760
+        case 6:
+            out = (
+                (367 / 967680) * u[gv(cut=(0, 6))]
+                + (-281 / 53760) * u[gv(cut=(1, 5))]
+                + (6361 / 107520) * u[gv(cut=(2, 4))]
+                + (215641 / 241920) * u[gv(cut=(3, 3))]
+                + (6361 / 107520) * u[gv(cut=(4, 2))]
+                + (-281 / 53760) * u[gv(cut=(5, 1))]
+                + (367 / 967680) * u[gv(cut=(6, 0))]
+            )
         case 7:
             out = (
                 0 * u[gv(cut=(0, 8))]
