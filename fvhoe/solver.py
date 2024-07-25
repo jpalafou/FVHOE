@@ -168,6 +168,7 @@ class EulerSolver(ODE):
         self.gamma = gamma
 
         # riemann solver
+        self.riemann_solver_name = riemann_solver
         match riemann_solver:
             case "advection_upwind":
                 self.riemann_solver = advection_upwind
