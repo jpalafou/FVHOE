@@ -1,15 +1,21 @@
 from fvhoe.initial_conditions import square, sinus
-from fvhoe.fv import interpolate_cell_centers, interpolate_fv_averages, fv_average
+from fvhoe.fv import (
+    interpolate_cell_centers,
+    interpolate_fv_averages,
+    fv_average,
+    fv_uniform_meshgen,
+)
 import numpy as np
 import pytest
-from tests.test_utils import l1err, meshgen
+from tests.test_utils import l1err
 
 
 def test_first_order_cell_average():
     """
     assert first-order finite volume average should is trivial
     """
-    (X, Y, Z), h = meshgen((32, 64, 128))
+    X, Y, Z = fv_uniform_meshgen((32, 64, 128))
+    h = (1 / 32, 1 / 64, 1 / 128)
 
     def f(x, y, z):
         return sinus(x, y, z, dims="xyz", vx=1, vy=2, vz=3)
@@ -28,7 +34,8 @@ def test_uniform_cell_average(px, py, pz):
         py (int) : polynomial interpolation degree in y-direction
         pz (int) : polynomial interpolation degree in z-direction
     """
-    (X, Y, Z), h = meshgen((32, 64, 128))
+    X, Y, Z = fv_uniform_meshgen((32, 64, 128))
+    h = (1 / 32, 1 / 64, 1 / 128)
 
     def f(x, y, z):
         return square(x, y, z, dims="xyz", vx=1, vy=2, vz=3)
@@ -50,7 +57,7 @@ def test_interpolation_symmetry(transformation: callable, p: int, N: int = 128):
         p (int) : polynomial interpolation degree
         N (int) : number of cells
     """
-    (X, Y, Z), _ = meshgen((N, N, N))
+    X, Y, Z = fv_uniform_meshgen((N, N, N))
     R = np.sqrt((X - 0.5) ** 2 + (Y - 0.5) ** 2 + (Z - 0.5) ** 2)
     data1 = np.where(R < 0.25, 1, 0)[np.newaxis, ...]
     data2 = transformation(data1, p=(p, p, p))

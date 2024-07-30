@@ -1,36 +1,83 @@
+from itertools import product
 from functools import partial
 import numpy as np
 from typing import Tuple
 
 
-def uniform_fv_mesh(
-    nx: int,
-    ny: int = 1,
-    nz: int = 1,
+def fv_uniform_meshgen(
+    n: Tuple[float, float, float],
     x: Tuple[float, float] = (0, 1),
     y: Tuple[float, float] = (0, 1),
     z: Tuple[float, float] = (0, 1),
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    slab_thickness: Tuple[int, int, int] = (0, 0, 0),
+) -> tuple:
     """
-    compute locations of finite volume centers in a uniform x, y, z mesh
+    generate a 3D mesh of finite volume cell centers
     args:
-        nx (int) : number of volumes in x-direction
-        ny (int) : number of volumes in y-direction
-        nz (int) : number of volumes in z-direction
-        x (Tuple[float, float]) : left, right x-domain boundaries
-        y (Tuple[float, float]) : left, right y-domain boundaries
-        z (Tuple[float, float]) : left, right z-domain boundaries
+        n (Tuple[float, float, float]) : number of cells (nx, ny, nz)
+        x (Tuple[float, float]) : x boundaries (x0, x1)
+        y (Tuple[float, float]) : y boundaries (y0, y1)
+        z (Tuple[float, float]) : z boundaries (z0, z1)
     returns:
-        X, Y, Z (Tuple[array_like, array_like, array_like]) : finite volume centers
+        if slab_thickness is (0, 0, 0):
+            X, Y, Z (Tuple[array_like, array_like, array_like]) : mesh arrays, if slab_thickness is (0, 0, 0)
+        if slab_thickness is not (0, 0, 0):
+            inner_coords (Tuple[array_like, array_like, array_like]) : mesh arrays without slabs
+            slab_coords (Dict[str, Tuple[array_like, array_like, array_like]]) : mesh arrays for slabs in each direction, indexed by dimension and position
+            {'xl': (...), 'xr': (...), ...}
     """
-    x_interfaces = np.linspace(x[0], x[1], nx + 1)
-    y_interfaces = np.linspace(y[0], y[1], ny + 1)
-    z_interfaces = np.linspace(z[0], z[1], nz + 1)
-    x_centers = 0.5 * (x_interfaces[:-1] + x_interfaces[1:])
-    y_centers = 0.5 * (y_interfaces[:-1] + y_interfaces[1:])
-    z_centers = 0.5 * (z_interfaces[:-1] + z_interfaces[1:])
-    X, Y, Z = np.meshgrid(x_centers, y_centers, z_centers, indexing="ij")
-    return X, Y, Z
+    # define cell boundaries
+    x_bound = np.linspace(x[0], x[1], n[0] + 1)
+    y_bound = np.linspace(y[0], y[1], n[1] + 1)
+    z_bound = np.linspace(z[0], z[1], n[2] + 1)
+
+    # define cell centers
+    x_mid, y_mid, z_mid = (
+        0.5 * (x_bound[1:] + x_bound[:-1]),
+        0.5 * (y_bound[1:] + y_bound[:-1]),
+        0.5 * (z_bound[1:] + z_bound[:-1]),
+    )
+
+    # uniform mesh
+    X, Y, Z = np.meshgrid(x_mid, y_mid, z_mid, indexing="ij")
+
+    # early escape if slab coordinates are not needed
+    if slab_thickness == (0, 0, 0):
+        return X, Y, Z
+
+    # store innter coordinates
+    inner_coords = X, Y, Z
+
+    # build dict of slab coordinates
+    h = ((x[1] - x[0]) / n[0], (y[1] - y[0]) / n[1], (z[1] - z[0]) / n[2])
+    gwx, gwy, gwz = slab_thickness
+    slab_coords = {}
+    for dim, pos in product("xyz", "lr"):
+        X, Y, Z = fv_uniform_meshgen(
+            (
+                gwx if dim == "x" else n[0] + 2 * gwx,
+                gwy if dim == "y" else n[1] + 2 * gwy,
+                gwz if dim == "z" else n[2] + 2 * gwz,
+            ),
+            x=(
+                {"l": (x[0] - h[0] * gwx, x[0]), "r": (x[1], x[1] + h[0] * gwx)}[pos]
+                if dim == "x"
+                else (x[0] - h[0] * gwx, x[1] + h[0] * gwx)
+            ),
+            y=(
+                {"l": (y[0] - h[1] * gwy, y[0]), "r": (y[1], y[1] + h[1] * gwy)}[pos]
+                if dim == "y"
+                else (y[0] - h[1] * gwy, y[1] + h[1] * gwy)
+            ),
+            z=(
+                {"l": (z[0] - h[2] * gwz, z[0]), "r": (z[1], z[1] + h[2] * gwz)}[pos]
+                if dim == "z"
+                else (z[0] - h[2] * gwz, z[1] + h[2] * gwz)
+            ),
+        )
+        slab_coords[dim + pos] = (X, Y, Z)
+
+    return inner_coords, slab_coords
 
 
 def get_view(

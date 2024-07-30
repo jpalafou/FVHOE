@@ -1,9 +1,9 @@
-import numpy as np
 from fvhoe.boundary_conditions import BoundaryCondition
 from fvhoe.config import conservative_names, primitive_names
 from fvhoe.fv import (
-    fv_average,
     conservative_interpolation,
+    fv_average,
+    fv_uniform_meshgen,
     interpolate_cell_centers,
     interpolate_fv_averages,
     transverse_reconstruction,
@@ -21,6 +21,7 @@ from fvhoe.slope_limiting import (
 from fvhoe.visualization import plot_1d_slice, plot_2d_slice
 from itertools import product
 import json
+import numpy as np
 import os
 import shutil
 import pickle
@@ -76,6 +77,7 @@ class EulerSolver(ODE):
         dumpall: bool = False,
         snapshots_as_fv_averages: bool = True,
         snapshot_helper_function: callable = None,
+        slab_buffer_size: int = 30,
         cupy: bool = False,
     ):
         """
@@ -128,6 +130,7 @@ class EulerSolver(ODE):
             dumpall (bool) : save all variables in snapshot
             snapshots_as_fv_averages (bool) : save snapshots as finite volume averages. if false, save as cell centers
             snapshot_helper_function (callable) : function to call at the end of a snapshot with self as the sole argument
+            slab_buffer_size (int) : for applying boundary conditions
             cupy (bool) : whether to use GPUs via the cupy library
         returns:
             EulerSolver object
@@ -137,21 +140,18 @@ class EulerSolver(ODE):
         self.x_domain = x
         self.y_domain = y
         self.z_domain = z
-        self.xi = np.linspace(x[0], x[1], nx + 1)  # x-interfaces
-        self.yi = np.linspace(y[0], y[1], ny + 1)  # y-interfaces
-        self.zi = np.linspace(z[0], z[1], nz + 1)  # z-interfaces
-        self.x = 0.5 * (self.xi[:-1] + self.xi[1:])  # x-centers
-        self.y = 0.5 * (self.yi[:-1] + self.yi[1:])  # y-centers
-        self.z = 0.5 * (self.zi[:-1] + self.zi[1:])  # z-centers
-        self.X, self.Y, self.Z = np.meshgrid(self.x, self.y, self.z, indexing="ij")
         hx = (x[1] - x[0]) / nx
         hy = (y[1] - y[0]) / ny
         hz = (z[1] - z[0]) / nz
-        self.n = (nx, ny, nz)
         self.h = (hx, hy, hz)
+        self.n = (nx, ny, nz)
         self.p = (px, py, pz)
-        self.CFL = CFL
-        self.fixed_dt = fixed_dt
+        self.X, self.Y, self.Z = fv_uniform_meshgen(
+            self.n, self.x_domain, self.y_domain, self.z_domain
+        )
+        self.x = self.X[:, 0, 0]
+        self.y = self.Y[0, :, 0]
+        self.z = self.Z[0, 0, :]
         self.xdim = not (self.n[0] == 1 and self.p[0] == 0)
         self.ydim = not (self.n[1] == 1 and self.p[1] == 0)
         self.zdim = not (self.n[2] == 1 and self.p[2] == 0)
@@ -163,6 +163,8 @@ class EulerSolver(ODE):
         if self.zdim:
             self.dims += "z"
         self.ndim = len(self.dims)
+        self.CFL = CFL
+        self.fixed_dt = fixed_dt
 
         # physics
         self.gamma = gamma
@@ -201,33 +203,41 @@ class EulerSolver(ODE):
             u0_fv = fv_average(f=u0, x=self.X, y=self.Y, z=self.Z, h=self.h, p=self.p)
         u0_fv = self.NamedArray(u0_fv, u0_fv.variable_names)
 
-        # boundary conditions
-        bc = BoundaryCondition() if bc is None else bc
-        self.bc = BoundaryCondition(
-            names=conservative_names,
-            x=bc.x,
-            y=bc.y,
-            z=bc.z,
-            x_value=bc.x_value,
-            y_value=bc.y_value,
-            z_value=bc.z_value,
-            x_domain=self.x_domain,
-            y_domain=self.y_domain,
-            z_domain=self.z_domain,
-            h=self.h,
+        # get slab coordinates for boundaries
+        slab_buffer_sizes = (
+            slab_buffer_size if self.xdim else 0,
+            slab_buffer_size if self.ydim else 0,
+            slab_buffer_size if self.zdim else 0,
         )
-        # set initial condition boundaries
+        _, slab_coords = fv_uniform_meshgen(
+            (nx, ny, nz), x=x, y=y, z=z, slab_thickness=slab_buffer_sizes
+        )
+
+        # define boundary conditions
+        self.bc = (
+            BoundaryCondition(
+                x=("periodic", "periodic"),
+                y=("periodic", "periodic"),
+                z=("periodic", "periodic"),
+            )
+            if bc is None
+            else bc
+        )
+        self.bc.slab_coords = slab_coords
+
+        # configure initial condition boundaries
         any_ic_bc = False
         for dim, i in product(["x", "y", "z"], (0, 1)):
-            if getattr(self.bc, dim)[i] == {var: "ic" for var in conservative_names}:
+            if getattr(self.bc, dim)[i] == "ic":
                 any_ic_bc = True
-                dim_value = getattr(self.bc, f"{dim}_value")
-                dim_value[i] = {var: u0 for var in conservative_names}
+                dim_value = list(getattr(self.bc, f"{dim}_value"))
+                dim_value[i] = u0
                 setattr(self.bc, f"{dim}_value", dim_value)
         if any_ic_bc and fv_ic:
             print(
                 "Warning: initial condition function returns finite volume averages and is being used to apply boundary conditions."
             )
+        self.bc.__post_init__()
 
         # inegrator class init
         super().__init__(u0_fv, progress_bar=progress_bar)

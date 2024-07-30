@@ -1,3 +1,5 @@
+reuse boundaries for fallback scheme
+
 RuntimeWarning: invalid value encountered in sqrt
   out = np.sqrt(gamma * P / rho)
 

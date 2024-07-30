@@ -164,7 +164,7 @@ def shock_1d(
     returns:
         out (NamedNumpyArray) : has variable names ["rho", "vx", "vy", "vz", "P"]
     """
-    if dim not in ["x", "y", "z"]:
+    if dim not in "xyz":
         raise ValueError("dim must be 'x', 'y', or 'z'")
     r = {"x": x, "y": y, "z": z}[dim]
     out = empty_NamedArray(r.shape)
