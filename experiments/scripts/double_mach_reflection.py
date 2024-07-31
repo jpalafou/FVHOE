@@ -6,16 +6,29 @@ import matplotlib.pyplot as plt
 import numpy as np
 import os
 
-T = 0.2
-n_snapshots = 2
-Nx = 3840
-p = 4
-NAD = 1e-2
-SED = True
-CFL = 0.6
-integrator = "SSPRK3"
-name = f"double-mach-reflection_{Nx=}_{p=}_{NAD=}_{SED=}_{CFL=}_{integrator=}"
-snapshot_dir = "/scratch/gpfs/jp7427/fvhoe/snapshots/" + name
+# argparse
+import argparse
+
+parser = argparse.ArgumentParser()
+parser.add_argument("-N", "--N", type=int, required=True)
+parser.add_argument("-p", "--p", type=int, required=True)
+parser.add_argument("--nad", type=float, required=True)
+parser.add_argument("--sed", action="store_true")
+parser.add_argument("-C", "--cfl", type=float, required=True)
+parser.add_argument("-i", "--integrator", type=int, required=True)
+args = parser.parse_args()
+
+# solver params
+Nx = args.N
+p = args.p
+NAD = args.nad
+SED = args.sed
+CFL = args.cfl
+integrator_order = args.integrator
+snapshot_parent_dir = "/scratch/gpfs/jp7427/fvhoe/snapshots/"
+project_name = (
+    f"double-mach-reflection_{Nx=}_{p=}_{NAD=}_{SED=}_{CFL=}_{integrator_order=}"
+)
 
 
 def snapshot_helper_function(s):
@@ -39,10 +52,12 @@ def snapshot_helper_function(s):
     ax.set_xlabel("$x$")
     ax.set_ylabel("$y$")
 
-    if not os.path.exists(f"snapshots/{name}"):
-        os.makedirs(f"snapshots/{name}")
+    snapshot_im_dir = "snapshot_ims/" + project_name
 
-    plt.savefig(f"snapshots/{name}/t={s.t:.2f}.png", dpi=300, bbox_inches="tight")
+    if not os.path.exists(snapshot_im_dir):
+        os.makedirs(snapshot_im_dir)
+
+    plt.savefig(snapshot_im_dir + f"/t={s.t:.2f}.png", dpi=300, bbox_inches="tight")
 
 
 # double mach reflection setup
@@ -120,17 +135,18 @@ def E_upper(x, y, z, t):
     )
 
 
+# set up solver
 solver = EulerSolver(
     w0=double_mach_reflection_2d,
     bc=BoundaryCondition(
-        x=("dirichlet", "symmetric"),
+        x=("dirichlet", "outflow"),
         x_value=(
             {
                 "rho": rho[0],
                 "E": P[0] / (1.4 - 1) + 0.5 * rho[0] * (vx[0] ** 2 + vy[0] ** 2),
                 "mx": rho[0] * vx[0],
                 "my": rho[0] * vy[0],
-                "mz": None,
+                "mz": 0,
             },
             None,
         ),
@@ -145,7 +161,7 @@ solver = EulerSolver(
                 "E": E_upper,
                 "mx": mx_upper,
                 "my": my_upper,
-                "mz": None,
+                "mz": 0,
             },
         ),
     ),
@@ -167,14 +183,12 @@ solver = EulerSolver(
     snapshot_helper_function=snapshot_helper_function,
 )
 
-integrator_config = dict(
-    T=T,
-    downbeats=np.linspace(0, T, n_snapshots),
-    snapshot_dir=snapshot_dir,
-)
-if integrator == "SSPRK3":
+# run simulation
+integrator_config = dict(T=0.2, snapshot_dir=snapshot_parent_dir + project_name)
+
+if integrator_order == 3:
     solver.ssprk3(**integrator_config)
-elif integrator == "RK4":
+elif integrator_order == 4:
     solver.rk4(**integrator_config)
 else:
-    raise ValueError(f"Integrator {integrator}")
+    raise ValueError(f"Integrator order {integrator_order}")
