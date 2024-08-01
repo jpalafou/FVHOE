@@ -7,7 +7,9 @@ fvhoe.egg-info/
 .ruff_cache/
 
 # outputs
+**/bin/
 **/data/
+**/out/
 **/snapshots/
 **/*.log
 **/*.out

@@ -211,3 +211,16 @@ class BoundaryCondition:
                     raise ValueError(f"Unknown bc type '{bc}'")
 
         return out
+
+    def to_dict(self) -> dict:
+        return dict(
+            x=self.x,
+            y=self.y,
+            z=self.z,
+            x_value="function" if callable(self.x_value) else self.x_value,
+            y_value="function" if callable(self.y_value) else self.y_value,
+            z_value="function" if callable(self.z_value) else self.z_value,
+            slab_coords=(
+                "dict" if isinstance(self.slab_coords, dict) else self.slab_coords
+            ),
+        )
