@@ -1,70 +1,42 @@
-from functools import partial
 from fvhoe.boundary_conditions import BoundaryCondition
 from fvhoe.initial_conditions import sedov
-from fvhoe.solver import EulerSolver
-from itertools import product
-import matplotlib.pyplot as plt
+from fvhoe.scripting import EulerSolver_wrapper
+from functools import partial
 
-# sedov blast params
-gamma = 1.4
+N = 64
+p = 3
 
-for t, N, p, rs, lc in product([0.7], [32], [1], ["hllc"], [dict(NAD=1e-5)]):
-    # savepath
-    snapshot_dir = "/scratch/gpfs/jp7427/fvhoe/snapshots/"
-    snapshot_dir += f"sedov3d_{t=}_{N=}_{p=}_{rs=}_{lc=}"
+# set up solver
+solver_config = dict(
+    fv_ic=True,
+    conservative_ic=True,
+    x=(0, 1.1),
+    y=(0, 1.1),
+    z=(0, 1.1),
+    nx=N,
+    ny=N,
+    nz=N,
+    px=p,
+    py=p,
+    pz=p,
+    gamma=1.4,
+    a_posteriori_slope_limiting=p > 0,
+    all_floors=True,
+    NAD=1e-2,
+    cupy=False,
+)
 
-    # run solver
-    solver = EulerSolver(
-        w0=partial(sedov, dims="xyz", mode="corner"),
-        conservative_ic=True,
-        fv_ic=True,
-        gamma=gamma,
-        bc=BoundaryCondition(
-            x=("reflective", "outflow"),
-            y=("reflective", "outflow"),
-            z=("reflective", "outflow"),
-        ),
-        CFL=0.8,
-        nx=N,
-        ny=N,
-        nz=N,
-        px=p,
-        py=p,
-        pz=p,
-        riemann_solver=rs,
-        all_floors=True,
-        snapshots_as_fv_averages=False,
-        cupy=True,
-        a_posteriori_slope_limiting=True,
-        **lc,
-    )
-    solver.rkorder(t, snapshot_dir=snapshot_dir)
-
-    # plot in snapshot path
-    fig, ax = plt.subplots(2, 3, sharex=True, sharey=True)
-
-    indexing = dict(z=0.5, t=t)
-
-    # density
-    ax[0, 0].set_title(r"$\rho$")
-    solver.plot_2d_slice(ax[0, 0], param="rho", **indexing)
-
-    # pressure
-    ax[0, 1].set_title(r"$P$")
-    solver.plot_2d_slice(ax[0, 1], param="P", verbose=False, **indexing)
-
-    # velocity magnitude
-    ax[0, 2].set_title(r"$v$")
-    solver.plot_2d_slice(ax[0, 2], param="v", verbose=False, **indexing)
-
-    # velocity components
-    ax[1, 0].set_title(r"$v_x$")
-    solver.plot_2d_slice(ax[1, 0], param="vx", verbose=False, **indexing)
-
-    ax[1, 1].set_title(r"$v_y$")
-    solver.plot_2d_slice(ax[1, 1], param="vy", verbose=False, **indexing)
-
-    ax[1, 2].set_title(r"$v_z$")
-    solver.plot_2d_slice(ax[1, 2], param="vz", verbose=False, **indexing)
-
-    fig.savefig(snapshot_dir + "/plot.png", dpi=300, bbox_inches="tight")
+# run solver
+EulerSolver_wrapper(
+    project_pref="sedov-2D",
+    snapshot_parent_dir="/scratch/gpfs/jp7427/fvhoe/snapshots",
+    summary_parent_dir="out",
+    ic=partial(sedov, dims="xyz"),
+    bc=BoundaryCondition(
+        x=("reflective", "outflow"),
+        y=("reflective", "outflow"),
+        z=("reflective", "outflow"),
+    ),
+    T=1.0,
+    **solver_config,
+)

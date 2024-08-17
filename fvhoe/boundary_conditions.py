@@ -7,6 +7,13 @@ from fvhoe.named_array import NamedNumpyArray, NamedCupyArray
 import numpy as np
 from typing import Any, Dict, Tuple, Union
 
+try:
+    import cupy as cp
+
+    CUPY_AVAILABLE = True
+except Exception:
+    CUPY_AVAILABLE = False
+
 
 def set_dirichlet_bc(
     u: NamedNumpyArray,
@@ -17,6 +24,7 @@ def set_dirichlet_bc(
     **kwargs,
 ) -> None:
     """
+    modify u to impose dirichlet boundaries with either constant values or a function
     args:
         u (NamedArray) : array to apply boundary conditions to
         boundary_values (NamedArray, callable) : 1D NamedArray or callable that returns 3D array
@@ -70,7 +78,7 @@ def set_free_bc(u: NamedNumpyArray, slab_thickness: int, axis: int, pos: str):
 
 def set_periodic_bc(u: NamedNumpyArray, slab_thickness: int, axis: int) -> None:
     """
-    modify u to impose periodic boundary conditions
+    modify u to impose periodic boundaries
     args:
         u: (NamedArray) array to apply periodic boundary conditions to
         slab_thickness: (int) thickness of the slab to be copied
@@ -88,7 +96,11 @@ def set_periodic_bc(u: NamedNumpyArray, slab_thickness: int, axis: int) -> None:
 
 
 def set_symmetric_bc(
-    u: NamedNumpyArray, slab_thickness: int, axis: int, pos: str
+    u: NamedNumpyArray,
+    slab_thickness: int,
+    axis: int,
+    pos: str,
+    negate_var: str = None,
 ) -> None:
     """
     modify u to impose symmetric boundaries
@@ -97,6 +109,7 @@ def set_symmetric_bc(
         slab_thickness: (int) thickness of the slab to be copied
         axis: (int) axis to apply periodic boundary conditions
         pos: (str) position of the slab to be copied, "l" or "r"
+        negate_var (str) : optional. variable to multiply by -1 in the slab
     returns:
         None, modifies u in place
     """
@@ -110,17 +123,50 @@ def set_symmetric_bc(
     else:
         raise ValueError(f"Invalid pos '{pos}'")
 
+    # multiply a variable in the slab by -1
+    if negate_var is not None:
+        var_data = getattr(u, negate_var)
+        var_data[
+            get_view(
+                ndim=3,
+                axis=axis - 1,
+                cut={
+                    "l": (0, -slab_thickness),
+                    "r": (-slab_thickness, 0),
+                }[pos],
+            )
+        ] *= -1.0
+        setattr(u, negate_var, var_data)
+
 
 @dataclass
 class BoundaryCondition:
-    names: list = None
+    """
+    Specify and apply various boundary conditions in 3D
+    args:
+        x (Union[str, Tuple[str, str]]) : boundary conditions in x-direction
+            tuple : left bc type, right bc type
+            single value : both bc types
+        y (Union[str, Tuple[str, str]]) : boundary conditions in y-direction
+        z (Union[str, Tuple[str, str]]) : boundary conditions in z-direction
+        x_value (Union[Any, Tuple[Any, Any]]) : data for dirichlet boundaries in x-direction
+            tuple : left bc value, right bc value
+            single value : both bc values
+        y_value (Union[Any, Tuple[Any, Any]]) : data for dirichlet boundaries in y-direction
+        z_value (Union[Any, Tuple[Any, Any]]) : data for dirichlet boundaries in z-direction
+        slab_coords (Dict[str, np.ndarray]) : dict of coordinates meshes of slabs in 3D
+            {"xl": (X, Y, Z), ...}
+        cupy (bool) : whether to use cupy
+    """
+
     x: Union[str, Tuple[str, str]] = "periodic"
     y: Union[str, Tuple[str, str]] = "periodic"
     z: Union[str, Tuple[str, str]] = "periodic"
-    x_value: Tuple[Any, Any] = None
-    y_value: Tuple[Any, Any] = None
-    z_value: Tuple[Any, Any] = None
+    x_value: Union[Any, Tuple[Any, Any]] = None
+    y_value: Union[Any, Tuple[Any, Any]] = None
+    z_value: Union[Any, Tuple[Any, Any]] = None
     slab_coords: Dict[str, np.ndarray] = None
+    cupy: bool = False
 
     def __post_init__(self):
         # ensure all bcs and bc values are tuples
@@ -138,11 +184,98 @@ class BoundaryCondition:
         else:
             self.slab_buffer_size = (
                 self.slab_coords["xl"][0].shape[0],
-                self.slab_coords["xl"][0].shape[1],
-                self.slab_coords["xl"][0].shape[2],
+                self.slab_coords["yl"][0].shape[1],
+                self.slab_coords["zl"][0].shape[2],
             )
 
+        # convert necessary arrays to cupy
+        if self.cupy and CUPY_AVAILABLE:
+            # dirichlet value arrays
+            for dim in "xyz":
+                bc_value = list(getattr(self, f"{dim}_value"))
+                for i in [0, 1]:
+                    if isinstance(bc_value[i], NamedNumpyArray):
+                        bc_value[i] = NamedCupyArray(
+                            input_array=bc_value[i],
+                            names=bc_value[i].variable_names,
+                        )
+                setattr(self, f"{dim}_value", tuple(bc_value))
+
+            # slab coords
+            for dim in "xyz":
+                for pos in "lr":
+                    x, y, z = self.slab_coords[dim + pos]
+                    x, y, z = cp.asarray(x), cp.asarray(y), cp.asarray(z)
+                    self.slab_coords[dim + pos] = x, y, z
+
+    def trim_slabs(
+        self, gw: Tuple[int, int, int], axis: int, pos: str
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """
+        View useful region of pre-allocated slab coordinates
+        args:
+            gw (Tuple[int, int, int]) : ghost zone width in x, y, and z
+            axis (int) : axis of desired slab
+            pos (str) : slab position along axis ("l" or "r")
+        """
+        X, Y, Z = self.slab_coords[{0: "x", 1: "y", 2: "z"}[axis] + pos]
+        xexcess = self.slab_buffer_size[0] - gw[0]
+        yexcess = self.slab_buffer_size[1] - gw[1]
+        zexcess = self.slab_buffer_size[2] - gw[2]
+        if xexcess < 0:
+            raise ValueError(
+                f"Cannot apply bc to region of thickness {gw[0]} with a buffer of thickness {self.slab_buffer_size[0]}"
+            )
+        if yexcess < 0:
+            raise ValueError(
+                f"Cannot apply bc to region of thickness {gw[1]} with a buffer of thickness {self.slab_buffer_size[1]}"
+            )
+        if zexcess < 0:
+            raise ValueError(
+                f"Cannot apply bc to region of thickness {gw[2]} with a buffer of thickness {self.slab_buffer_size[2]}"
+            )
+        xtrim = get_view(
+            ndim=3,
+            axis=0,
+            cut=(
+                {"l": (-gw[0], 0), "r": (0, -gw[0])}[pos]
+                if axis == 0
+                else (xexcess, xexcess)
+            ),
+        )
+        ytrim = get_view(
+            ndim=3,
+            axis=1,
+            cut=(
+                {"l": (-gw[1], 0), "r": (0, -gw[1])}[pos]
+                if axis == 1
+                else (yexcess, yexcess)
+            ),
+        )
+        ztrim = get_view(
+            ndim=3,
+            axis=2,
+            cut=(
+                {"l": (-gw[2], 0), "r": (0, -gw[2])}[pos]
+                if axis == 2
+                else (zexcess, zexcess)
+            ),
+        )
+        X = X[xtrim][ytrim][ztrim]
+        Y = Y[xtrim][ytrim][ztrim]
+        Z = Z[xtrim][ytrim][ztrim]
+        return X, Y, Z
+
     def apply(self, u: NamedNumpyArray, gw: Tuple[int, int, int], t: float = None):
+        """
+        Apply boundary conditions to conservative variable array u, increasing its size.
+        args:
+            u (NamedArray) : array of conservative variables in 3D
+            gw (Tuple[int, int, int]) : ghost zone width in x, y, and z
+            t : (float) time value
+        returns:
+            out (NamedArray) : arrays padded according to gw
+        """
         # apply temporary boundaries of nan
         out = np.pad(
             u,
@@ -151,38 +284,27 @@ class BoundaryCondition:
         )
         out = u.__class__(input_array=out, names=conservative_names)
 
+        # loop through slabs
         for (i, dim), (j, pos) in product(enumerate("xyz"), enumerate("lr")):
+            # gather bc parameters
             bc = getattr(self, dim)[j]
             slab_thickness = gw[i]
+
+            # skip if no thickness
             if slab_thickness == 0:
                 continue
 
             match bc:
                 case "dirichlet" | "ic":
-                    # get slab coordinates
-                    slab_coords = self.slab_coords[dim + pos]
-                    # trim excess buffer
-                    if self.slab_buffer_size[i] < slab_thickness:
-                        raise BaseException(
-                            f"Slab thickness {self.slab_buffer_size[i]} too small to apply {slab_thickness} boundaries along {dim}-dimension."
-                        )
-                    trim = get_view(
-                        ndim=3,
-                        axis=i,
-                        cut={"l": (-slab_thickness, 0), "r": (0, -slab_thickness)}[pos],
-                    )
                     # set dirichlet boundaries
-                    dirichlet_kwargs = dict(
-                        x=slab_coords[0][trim],
-                        y=slab_coords[1][trim],
-                        z=slab_coords[2][trim],
-                    )
+                    X, Y, Z = self.trim_slabs(gw=gw, axis=i, pos=pos)
+                    dirichlet_kwargs = dict(x=X, y=Y, z=Z)
                     if bc == "dirichlet":
                         dirichlet_kwargs["t"] = t
                     set_dirichlet_bc(
-                        out,
-                        getattr(self, f"{dim}_value")[j],
-                        slab_thickness,
+                        u=out,
+                        boundary_values=getattr(self, f"{dim}_value")[j],
+                        slab_thickness=slab_thickness,
                         axis=i + 1,
                         pos=pos,
                         **dirichlet_kwargs,
@@ -190,21 +312,39 @@ class BoundaryCondition:
                 case "free":
                     set_free_bc(out, slab_thickness, axis=i + 1, pos=pos)
                 case "outflow" | "reflective":
-                    set_symmetric_bc(out, slab_thickness, axis=i + 1, pos=pos)
-                    if bc == "reflective":  # multiply momentum at boundaries by -1
-                        getattr(out, f"m{dim}")[
-                            get_view(
-                                ndim=3,
-                                axis=i,
-                                cut={
-                                    "l": (0, -slab_thickness),
-                                    "r": (-slab_thickness, 0),
-                                }[pos],
-                            )
-                        ] *= -1
+                    set_symmetric_bc(
+                        out,
+                        slab_thickness,
+                        axis=i + 1,
+                        pos=pos,
+                        negate_var=f"m{dim}" if bc == "reflective" else None,
+                    )
                 case "periodic":
                     if pos == "l":  # do not apply periodic bc's twice
                         set_periodic_bc(out, slab_thickness, axis=i + 1)
+                case "special-case-double-mach-reflection-y=0":
+                    X = self.trim_slabs(gw=gw, axis=1, pos="l")[0][
+                        np.newaxis, :, :1, :1
+                    ]
+                    out_free = out.copy()
+                    out_refl = out.copy()
+
+                    # set free bc
+                    set_free_bc(out_free, slab_thickness, axis=i + 1, pos=pos)
+
+                    # set reflective bc
+                    set_symmetric_bc(
+                        out_refl,
+                        slab_thickness,
+                        axis=i + 1,
+                        pos=pos,
+                        negate_var="my",
+                    )
+
+                    # piecewise combination of the two
+                    out = np.where(X < 1 / 6, out_free, out_refl)
+                    out = u.__class__(input_array=out, names=conservative_names)
+
                 case None:
                     pass
                 case _:
@@ -213,14 +353,12 @@ class BoundaryCondition:
         return out
 
     def to_dict(self) -> dict:
+        """
+        return JSON-able dict
+        """
         return dict(
             x=self.x,
             y=self.y,
             z=self.z,
-            x_value="function" if callable(self.x_value) else self.x_value,
-            y_value="function" if callable(self.y_value) else self.y_value,
-            z_value="function" if callable(self.z_value) else self.z_value,
-            slab_coords=(
-                "dict" if isinstance(self.slab_coords, dict) else self.slab_coords
-            ),
+            cupy=self.cupy,
         )

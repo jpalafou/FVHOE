@@ -25,8 +25,8 @@ def test_init(bc: str, dim: str):
         bc (str) : boundary condition
         dim (str) : dimension
     """
-    bc_str = BoundaryCondition(names=conservative_names, **{dim: bc})
-    bc_tup = BoundaryCondition(names=conservative_names, **{dim: (bc, bc)})
+    bc_str = BoundaryCondition(**{dim: bc})
+    bc_tup = BoundaryCondition(**{dim: (bc, bc)})
     assert bc_str == bc_tup
 
 
@@ -53,12 +53,11 @@ def test_2d_bc(empty_dim: str, bc: str, N: int = 64, gw: int = 10):
 
     # define different boundary conditions
     trivial_bc = BoundaryCondition(
-        names=conservative_names,
         x=None if empty_dim == "x" else bc,
         y=None if empty_dim == "y" else bc,
         z=None if empty_dim == "z" else bc,
     )
-    nontrivial_bc = BoundaryCondition(names=conservative_names, x=bc, y=bc, z=bc)
+    nontrivial_bc = BoundaryCondition(x=bc, y=bc, z=bc)
 
     # apply boundary conditions
     arr1 = trivial_bc.apply(arr, gw=gws)
@@ -106,7 +105,9 @@ def test_dirichlet_f_of_xyzt(N: int = 64, gw: int = 10, t: float = 0.5):
 
     # create a 3D sinusoidal field
     def f(x, y, z, t):
-        out = NamedNumpyArray(np.empty((5, *x.shape)), conservative_names)
+        out = NamedNumpyArray(
+            input_array=np.empty((5, *x.shape)), names=conservative_names
+        )
         data = (
             np.sin(2 * np.pi * x)
             * np.sin(2 * np.pi * y)
@@ -182,7 +183,7 @@ def test_ic_bc(dim: str, p: int, N: int = 100, gamma: float = 1.4, T: float = 1.
     # dirichlet bc
     dirichlet_arrs = (
         NamedNumpyArray(
-            np.array(
+            input_array=np.array(
                 [
                     3.857143,
                     10.33333 / (gamma - 1) + 0.5 * 3.857143 * 2.629369 * 2.629369,
@@ -191,11 +192,11 @@ def test_ic_bc(dim: str, p: int, N: int = 100, gamma: float = 1.4, T: float = 1.
                     3.857143 * 2.629369 if dim == "z" else 0,
                 ]
             ),
-            conservative_names,
+            names=conservative_names,
         ),
         NamedNumpyArray(
-            np.array([1 + 0.2 * np.sin(5 * 5), 1 / (gamma - 1), 0, 0, 0]),
-            conservative_names,
+            input_array=np.array([1 + 0.2 * np.sin(5 * 5), 1 / (gamma - 1), 0, 0, 0]),
+            names=conservative_names,
         ),
     )
 

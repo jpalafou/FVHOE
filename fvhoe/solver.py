@@ -188,8 +188,6 @@ class EulerSolver(ODE):
         self.snapshot_helper_function = snapshot_helper_function
         self.cupy = cupy
         self.NamedArray = NamedCupyArray if cupy else NamedNumpyArray
-        self.timeseries_E = np.array([])
-        self.timeseries_rho = np.array([])
 
         # timing
         self.timer = Timer(
@@ -197,12 +195,15 @@ class EulerSolver(ODE):
                 "bc",
                 "hydrodynamics",
                 "hydrodynamics/hydrofluxes",
+                "hydrofluxes",
+                "hydrofluxes/conservative_interpolation",
+                "hydrofluxes/riemann_solver",
+                "hydrofluxes/transverse_reconstruction",
+                "interpolate_cell_centers",
                 "revise_fluxes",
                 "revise_fluxes/broadcast_to_troubled_interfaces",
                 "revise_fluxes/detect_troubled_cells",
                 "revise_fluxes/hydrofluxes",
-                "revise_fluxes/MUSCL_interpolations",
-                "riemann_solver",
                 "snapshot",
             ]
         )
@@ -243,6 +244,7 @@ class EulerSolver(ODE):
             else bc
         )
         self.bc.slab_coords = slab_coords
+        self.bc.cupy = cupy
 
         # configure initial condition boundaries
         any_ic_bc = False
@@ -260,6 +262,10 @@ class EulerSolver(ODE):
 
         # inegrator class init
         super().__init__(u0_fv, progress_bar=progress_bar)
+
+        # initialize timeseries data
+        self.timeseries_E = np.array([np.mean(u0_fv.E).item()])
+        self.timeseries_rho = np.array([np.mean(u0_fv.rho).item()])
 
         # fixed velocity
         self.fixed_primitive_variables = fixed_primitive_variables
@@ -365,6 +371,7 @@ class EulerSolver(ODE):
                 G (NamedArray) : y-direction conservative fluxes. has shape (5, nx, ny + 1, nz)
                 H (NamedArray) : z-direction conservative fluxes. has shape (5, nx, ny, nz + 1)
         """
+        self.timer.start("hydrofluxes")
         if slope_limiter is None:
             limit_slopes = False
         elif max(p) <= 1:
@@ -419,16 +426,17 @@ class EulerSolver(ODE):
         else:
             dt = self.fixed_dt
 
+        # perform conservative interpolation
+        self.timer.start("hydrofluxes/conservative_interpolation")
+
         # interpolate x face midpoints
         if self.xdim:
             w_xy = conservative_interpolation(w_bc, p=p[2], axis=3, pos="c")
             w_x = conservative_interpolation(w_xy, p=p[1], axis=2, pos="c")
             if limit_slopes and p[0] == 1:
-                self.timer.start("revise_fluxes/MUSCL_interpolations")
                 w_x_face_center_l, w_x_face_center_r = MUSCL_interpolations(
                     w_x, axis=1, limiter=slope_limiter
                 )
-                self.timer.stop("revise_fluxes/MUSCL_interpolations")
             else:
                 w_x_face_center_l = conservative_interpolation(
                     w_x, p=p[0], axis=1, pos="l"
@@ -442,11 +450,9 @@ class EulerSolver(ODE):
             w_yz = conservative_interpolation(w_bc, p=p[0], axis=1, pos="c")
             w_y = conservative_interpolation(w_yz, p=p[2], axis=3, pos="c")
             if limit_slopes and p[1] == 1:
-                self.timer.start("revise_fluxes/MUSCL_interpolations")
                 w_y_face_center_l, w_y_face_center_r = MUSCL_interpolations(
                     w_y, axis=2, limiter=slope_limiter
                 )
-                self.timer.stop("revise_fluxes/MUSCL_interpolations")
             else:
                 w_y_face_center_l = conservative_interpolation(
                     w_y, p=p[1], axis=2, pos="l"
@@ -460,11 +466,9 @@ class EulerSolver(ODE):
             w_zx = conservative_interpolation(w_bc, p=p[1], axis=2, pos="c")
             w_z = conservative_interpolation(w_zx, p=p[0], axis=1, pos="c")
             if limit_slopes and p[2] == 1:
-                self.timer.start("revise_fluxes/MUSCL_interpolations")
                 w_z_face_center_l, w_z_face_center_r = MUSCL_interpolations(
                     w_z, axis=3, limiter=slope_limiter
                 )
-                self.timer.stop("revise_fluxes/MUSCL_interpolations")
             else:
                 w_z_face_center_l = conservative_interpolation(
                     w_z, p=p[2], axis=3, pos="l"
@@ -473,8 +477,10 @@ class EulerSolver(ODE):
                     w_z, p=p[2], axis=3, pos="r"
                 )
 
+        self.timer.stop("hydrofluxes/conservative_interpolation")
+
         # pointwise numerical fluxes
-        self.timer.start("riemann_solver")
+        self.timer.start("hydrofluxes/riemann_solver")
         if self.xdim:
             f_face_center = self.riemann_solver(
                 wl=w_x_face_center_r[:, :-1, ...],
@@ -499,7 +505,7 @@ class EulerSolver(ODE):
                 dim="z",
                 rho_P_sound_speed_floor=self.rho_P_sound_speed_floor,
             )
-        self.timer.stop("riemann_solver")
+        self.timer.stop("hydrofluxes/riemann_solver")
 
         # excess ghost zone counts after flux integral
         x_excess = (
@@ -522,6 +528,7 @@ class EulerSolver(ODE):
         )
 
         # flux integrals
+        self.timer.start("hydrofluxes/transverse_reconstruction")
         if self.xdim:
             F = transverse_reconstruction(
                 transverse_reconstruction(f_face_center, axis=2, p=p[1]), axis=3, p=p[2]
@@ -540,6 +547,8 @@ class EulerSolver(ODE):
             )[tuple(slice(z_excess[i] or None, -z_excess[i] or None) for i in range(4))]
         else:
             H = self.H
+        self.timer.stop("hydrofluxes/transverse_reconstruction")
+        self.timer.stop("hydrofluxes")
         return dt, (F, G, H)
 
     def revise_fluxes(
@@ -664,7 +673,9 @@ class EulerSolver(ODE):
         self.timer.start("bc")
         u_bc = self.bc.apply(u, gw=gw, t=self.t)
         self.timer.stop("bc")
+        self.timer.start("interpolate_cell_centers")
         u_cell_centers = interpolate_cell_centers(u_bc, p=p)
+        self.timer.stop("interpolate_cell_centers")
         w_cell_centers = compute_primitives(u_cell_centers, gamma=self.gamma)
         if self.fixed_primitive_variables is not None and self.t > 0:
             w0_cell_centers = self.w0_cell_centers_cache.get(f"{gw=}, {p=}", None)
@@ -672,7 +683,9 @@ class EulerSolver(ODE):
                 self.timer.start("bc")
                 u0_bc = self.bc.apply(self.u0, gw=gw, t=0)
                 self.timer.stop("bc")
+                self.timer.start("interpolate_cell_centers")
                 u0_cell_centers = interpolate_cell_centers(u0_bc, p=p)
+                self.timer.stop("interpolate_cell_centers")
                 w0_cell_centers = compute_primitives(u0_cell_centers, gamma=self.gamma)
                 self.w0_cell_centers_cache[f"{gw=}, {p=}"] = w0_cell_centers
             for var in self.fixed_primitive_variables:
@@ -750,7 +763,9 @@ class EulerSolver(ODE):
                     t=self.t,
                 )
                 self.timer.stop("bc")
+                self.timer.start("interpolate_cell_centers")
                 u = interpolate_cell_centers(u_bc, p=self.p)
+                self.timer.stop("interpolate_cell_centers")
             w = w.merge(u)
 
         # log troubles

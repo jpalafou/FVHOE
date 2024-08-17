@@ -1,0 +1,97 @@
+import cupy as cp
+from fvhoe.boundary_conditions import BoundaryCondition
+from fvhoe.config import conservative_names
+from fvhoe.initial_conditions import double_mach_reflection_2d
+from fvhoe.named_array import NamedNumpyArray, NamedCupyArray
+from fvhoe.scripting import EulerSolver_wrapper
+import numpy as np
+
+Nx = 960
+p = 4
+
+# set up solver
+solver_config = dict(
+    x=(0, 4),
+    nx=Nx,
+    ny=Nx // 4,
+    px=p,
+    py=p,
+    CFL=0.6,
+    gamma=1.4,
+    a_posteriori_slope_limiting=p > 0,
+    all_floors=True,
+    NAD=1e-2,
+    cupy=True,
+)
+
+
+def upper_bc(x, y, z, t):
+    """
+    dirichlet boundary at y=0 for double mach reflection
+    """
+    cupy = solver_config["cupy"]
+    theta = np.pi / 3
+    xp = (10 * t / np.sin(theta)) + (1 / 6) + (y / np.tan(theta))
+    if cupy:
+        out = NamedCupyArray(cp.asarray([np.empty_like(x)] * 5), conservative_names)
+    else:
+        out = NamedNumpyArray(np.asarray([np.empty_like(x)] * 5), conservative_names)
+
+    # primitive
+    rho = np.where(x < xp, 8.0, 1.4)
+    vx = np.where(x < xp, 7.145, 0.0)
+    vy = np.where(x < xp, -8.25 / 2, 0.0)
+    P = np.where(x < xp, 116.5, 1.0)
+
+    # conservative
+    mx, my = rho * vx, rho * vy
+
+    out.rho = rho
+    out.mx = mx
+    out.my = my
+    out.mz = 0.0
+    out.E = P / (1.4 - 1) + 0.5 * (mx * vx + my * vy)
+
+    return out
+
+
+# run solver
+EulerSolver_wrapper(
+    project_pref="double-mach-reflection",
+    snapshot_parent_dir="/scratch/gpfs/jp7427/fvhoe/snapshots",
+    summary_parent_dir="out",
+    ic=double_mach_reflection_2d,
+    bc=BoundaryCondition(
+        x=("dirichlet", "outflow"),
+        x_value=(
+            NamedNumpyArray(
+                np.array(
+                    [
+                        8.0,
+                        116.5 / (1.4 - 1) + 0.5 * 8.0 * (7.145**2 + (-8.25 / 2) ** 2),
+                        8.0 * 7.145,
+                        8.0 * (-8.25 / 2),
+                        0,
+                    ]
+                ),
+                conservative_names,
+            ),
+            None,
+        ),
+        y=(
+            "special-case-double-mach-reflection-y=0",
+            "dirichlet",
+        ),
+        y_value=(None, upper_bc),
+    ),
+    T=0.2,
+    integrator=3,
+    plot_kwargs=dict(
+        z=0.5,
+        contour=True,
+        levels=np.linspace(1.5, 22.9705, 30),
+        colors="k",
+        linewidths=0.25,
+    ),
+    **solver_config,
+)
