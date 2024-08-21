@@ -64,8 +64,7 @@ class EulerSolver(ODE):
         slope_limiter: str = "minmod",
         force_trouble: bool = False,
         NAD: float = 1e-2,
-        NAD_mode: str = "any",
-        NAD_vars: list = None,
+        NAD_mode: str = "global",
         PAD: dict = None,
         SED: bool = True,
         SED_tolerance: float = 1e-10,
@@ -117,8 +116,9 @@ class EulerSolver(ODE):
             slope_limiter (str) : slope limiter code, "minmod", "moncen", None
             force_trouble (bool) : if True, all cells are flagged as troubled
             NAD (float) : NAD tolerance in troubled cell detection
-            NAD_mode (str) : NAD mode in troubled cell detection: "any", "only"
-            NAD_vars (list) : when NAD_mode is "only", list of variables to apply NAD
+            NAD_mode (str) : "global" or "local"
+                "global" : NAD is applied based on the global range of each variable
+                "local" : NAD is applied based on the local range of each variable
             PAD (dict) : primitive variable limits for slope limiting
             SED (bool) : whether to ignore NAD trouble where smooth extrema are detected
             SED_tolerance (float) : tolerance for avoiding dividing by 0 in smooth extrema detection
@@ -279,7 +279,6 @@ class EulerSolver(ODE):
         self.force_trouble = force_trouble
         self.NAD = NAD
         self.NAD_mode = NAD_mode
-        self.NAD_vars = NAD_vars
         self.PAD = PAD if isinstance(PAD, dict) else {}
         defaults_limits = {
             "rho": (0.0, np.inf),
@@ -592,7 +591,6 @@ class EulerSolver(ODE):
             dims=self.dims,
             NAD_tolerance=self.NAD,
             NAD_mode=self.NAD_mode,
-            NAD_vars=self.NAD_vars,
             PAD=self.PAD,
             SED=self.SED,
             SED_tolerance=self.SED_tolerance,

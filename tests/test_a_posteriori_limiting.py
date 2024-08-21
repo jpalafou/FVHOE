@@ -2,7 +2,6 @@ from functools import partial
 from fvhoe.boundary_conditions import BoundaryCondition
 from fvhoe.initial_conditions import double_shock_1d, sedov
 from fvhoe.solver import EulerSolver
-import numpy as np
 import pytest
 from tests.test_utils import l2err
 
@@ -111,45 +110,3 @@ def test_2d_symmetry(p: int, rs: str, limiting_config: dict, N: int = 32):
 
     assert xy_yz_err == 0
     assert yz_zx_err == 0
-
-
-@pytest.mark.parametrize("p", [7])
-@pytest.mark.parametrize("NAD", [0, 1e-3, 1e-5])
-def test_NAD(p: int, NAD: float, N: int = 32):
-    """
-    use the 2D sedov blast problem to test that the NAD "only" and NAD "any" modes are consistent
-    args:
-        N:      number of cells in each dimension
-        p:      polynomial degree
-        NAD:    NAD tolerance
-    """
-    # initialize solvers
-    solver_configs = dict(
-        w0=partial(sedov, dims="xy"),
-        conservative_ic=True,
-        fv_ic=True,
-        gamma=1.4,
-        bc=BoundaryCondition(x=("reflective", "outflow"), y=("reflective", "outflow")),
-        CFL=0.8,
-        nx=N,
-        ny=N,
-        px=p,
-        py=p,
-        riemann_solver="hllc",
-        a_posteriori_slope_limiting=True,
-        slope_limiter="minmod",
-        NAD=NAD,
-        all_floors=True,
-        cupy=False,
-    )
-    solver_any = EulerSolver(**solver_configs, NAD_mode="any")
-    solver_only = EulerSolver(
-        **solver_configs, NAD_mode="only", NAD_vars=["rho", "P", "vx", "vy"]
-    )
-
-    # run solvers
-    solver_any.rkorder(0.05)
-    solver_only.rkorder(0.05)
-
-    # compare results
-    assert np.all(solver_any.snapshots[-1]["w"] == solver_only.snapshots[-1]["w"])

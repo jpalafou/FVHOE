@@ -88,8 +88,7 @@ def detect_troubled_cells(
     u_candidate: NamedNumpyArray,
     dims: str = "xyz",
     NAD_tolerance: float = 1e-5,
-    NAD_mode: str = "any",
-    NAD_vars: list = None,
+    NAD_mode: str = "global",
     PAD: dict = None,
     SED: bool = True,
     SED_tolerance: float = 1e-10,
@@ -101,8 +100,10 @@ def detect_troubled_cells(
         u_candidate (NameArray) : array of candidate values with shape (# variables, nx, ny, nz)
         dims (str) : contains "x", "y", and/or "z"
         NAD_tolerance (float) : tolerance for NAD
-        NAD_mode (str) : "any" or "only"
-        NAD_vars (list) : when NAD_mode is "only", list of variables to apply NAD
+        NAD_mode (str) : "global" or "local"
+            "global" : NAD is applied based on the global range of each variable
+            "local" : NAD is applied based on the local range of each variable
+        global_NAD: (bool) :
         PAD (dict) : dictionary of PAD parameters with keys given by the variables in u
         SED (bool) : remove NAD trouble flags where a smooth extremum is detected
         SED_tolerance (float) : tolerance for avoiding dividing by 0 in smooth extrema detection
@@ -144,36 +145,31 @@ def detect_troubled_cells(
         ]
     else:
         raise ValueError(f"Unknown xp: {xp}")
+
+    # get relevant view of u_candidate
     u_candidate_inner = u_candidate[interior_slice]
 
-    # NAD for each variable
-    u_range = np.max(u, axis=(1, 2, 3), keepdims=True) - np.min(
-        u, axis=(1, 2, 3), keepdims=True
-    )
-    u_range = u.__class__(u_range, u.variable_names)
-    tolerance_per_var = NAD_tolerance * u_range
-    lower_NAD_difference = u_candidate_inner - m
-    upper_NAD_difference = M - u_candidate_inner
-    NAD_indicator_per_var = np.minimum(lower_NAD_difference, upper_NAD_difference)
-
-    if NAD_mode == "any":
-        NAD_trouble_per_var = NAD_indicator_per_var < -tolerance_per_var
-    elif NAD_mode == "only":
-        if NAD_vars is None:
-            raise ValueError("NAD_vars must be specified when NAD_mode is 'only'")
-        NAD_trouble_per_var = u.__class__(
-            np.zeros_like(u_candidate_inner, dtype=bool), u.variable_names
+    # get variable ranges
+    if NAD_mode == "global":
+        # global NAD for each variable
+        u_range = np.max(u, axis=(1, 2, 3), keepdims=True) - np.min(
+            u, axis=(1, 2, 3), keepdims=True
         )
-        for var in NAD_vars:
-            setattr(
-                NAD_trouble_per_var,
-                var,
-                getattr(NAD_indicator_per_var, var) < -getattr(tolerance_per_var, var),
-            )
+        u_range = u.__class__(u_range, u.variable_names)
+    elif NAD_mode == "local":
+        # local NAD for each variable
+        u_range = M - m
     else:
         raise ValueError(f"Unknown NAD_mode: {NAD_mode}")
 
-    # smooth extrema detection
+    # compute NAD trouble per variable
+    tolerance_per_var = NAD_tolerance * u_range
+    local_undershoot = u_candidate_inner - m
+    local_overshoot = M - u_candidate_inner
+    NAD_indicator_per_var = np.minimum(local_undershoot, local_overshoot)
+    NAD_trouble_per_var = NAD_indicator_per_var < -tolerance_per_var
+
+    # smooth extrema detection per variable
     if SED:
         if len(dims) == 1:
             alpha_per_var = compute_1d_smooth_extrema_detector(
