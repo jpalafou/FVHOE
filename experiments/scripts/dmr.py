@@ -21,6 +21,7 @@ solver_config = dict(
     a_posteriori_slope_limiting=p > 0,
     all_floors=True,
     NAD=1e-2,
+    NAD_mode="global",
     cupy=True,
 )
 

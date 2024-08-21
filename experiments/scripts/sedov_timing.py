@@ -6,15 +6,19 @@ from fvhoe.solver import EulerSolver
 import pandas as pd
 
 # experiment params
-dims = "xyz"
+dims = "xy"
 n = 10
-Ns = [16, 32, 64, 128, 256][-1:]
-ps = [0, 1, 2, 3, 4, 5, 6, 7, 8][-1:]
-cupys = [True]
+Ns = [16, 32, 64, 128, 256, 512, 1024]
+ps = [0, 1, 2, 3, 4, 5, 6, 7, 8]
+cupys = [False, True]
+save_path = f"out/sedov_{dims}_timing.csv"
+append = True
 
 data = []
 for N, p, cupy in product(Ns, ps, cupys):
     print(f"-----\n{N=}, {p=}, {cupy=}\n-----")
+    if append:
+        df = pd.read_csv(save_path)
     solver = EulerSolver(
         w0=partial(sedov, dims=dims),
         bc=BoundaryCondition(
@@ -43,16 +47,19 @@ for N, p, cupy in product(Ns, ps, cupys):
     solver.rkorder(n=n)
 
     # add data
-    data.append(
-        dict(
-            dims=dims,
-            N=N,
-            p=p,
-            integrator=solver.integrator,
-            n_iterations=n,
-            cupy=cupy,
-            execution_time=solver.execution_time,
-        )
+    current_data = dict(
+        dims=dims,
+        N=N,
+        p=p,
+        integrator=solver.integrator,
+        n_iterations=n,
+        cupy=cupy,
+        execution_time=solver.execution_time,
     )
 
-    pd.DataFrame(data).to_csv(f"data/sedov_{dims}_timing.csv", index=False)
+    if append:
+        df = pd.concat([df, pd.DataFrame([current_data])])
+    else:
+        data.append(current_data)
+        df = pd.DataFrame(data)
+    df.to_csv(save_path, mode="w", index=False)
