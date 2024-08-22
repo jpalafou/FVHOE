@@ -1,5 +1,5 @@
 from fvhoe.boundary_conditions import BoundaryCondition
-from fvhoe.config import conservative_names, primitive_names
+from fvhoe.config import conservative_names
 from fvhoe.fv import (
     conservative_interpolation,
     fv_average,
@@ -65,6 +65,8 @@ class EulerSolver(ODE):
         force_trouble: bool = False,
         NAD: float = 1e-2,
         NAD_mode: str = "global",
+        NAD_range: str = "relative",
+        NAD_vars: list = None,
         PAD: dict = None,
         SED: bool = True,
         SED_tolerance: float = 1e-10,
@@ -119,6 +121,14 @@ class EulerSolver(ODE):
             NAD_mode (str) : "global" or "local"
                 "global" : NAD is applied based on the global range of each variable
                 "local" : NAD is applied based on the local range of each variable
+            NAD_range (str) : "relative" or "absolute"
+                "relative" : NAD is applied based on the relative range of each variable
+                    upper_bound = max + (max - min) * eps
+                    lower_bound = min - (max - min) * eps
+                "absolute" : NAD is applied based on the absolute range of each variable
+                    upper_bound = (1 + eps) * max
+                    lower_bound = (1 - eps) * min
+            NAD_vars (list) : list of variables to apply NAD. if None, all variables are considered
             PAD (dict) : primitive variable limits for slope limiting
             SED (bool) : whether to ignore NAD trouble where smooth extrema are detected
             SED_tolerance (float) : tolerance for avoiding dividing by 0 in smooth extrema detection
@@ -279,17 +289,13 @@ class EulerSolver(ODE):
         self.force_trouble = force_trouble
         self.NAD = NAD
         self.NAD_mode = NAD_mode
-        self.PAD = PAD if isinstance(PAD, dict) else {}
-        defaults_limits = {
+        self.NAD_range = NAD_range
+        self.NAD_vars = NAD_vars
+        default_PAD = {
             "rho": (0.0, np.inf),
             "P": (0.0, np.inf),
-            "vx": (-np.inf, np.inf),
-            "vy": (-np.inf, np.inf),
-            "vz": (-np.inf, np.inf),
         }
-        for var in primitive_names:
-            if var not in self.PAD.keys():
-                self.PAD[var] = defaults_limits[var]
+        self.PAD = default_PAD if PAD is None else PAD
         self.SED = SED
         self.SED_tolerance = SED_tolerance
         self.convex = convex
@@ -589,11 +595,13 @@ class EulerSolver(ODE):
             u=w,
             u_candidate=w_star,
             dims=self.dims,
-            NAD_tolerance=self.NAD,
-            NAD_mode=self.NAD_mode,
-            PAD=self.PAD,
+            NAD_eps=self.NAD,
+            mode=self.NAD_mode,
+            range_type=self.NAD_range,
+            NAD_vars=self.NAD_vars,
+            PAD_bounds=self.PAD,
             SED=self.SED,
-            SED_tolerance=self.SED_tolerance,
+            SED_eps=self.SED_tolerance,
             xp={True: "cupy", False: "numpy"}[self.cupy],
         )
         self.timer.stop("revise_fluxes/detect_troubled_cells")

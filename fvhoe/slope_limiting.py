@@ -8,7 +8,7 @@ from fvhoe.smooth_extrema_detection import (
 )
 import numpy as np
 from scipy.ndimage import maximum_filter, minimum_filter
-from typing import Tuple
+from typing import Dict, Tuple
 
 try:
     import cupy as cp
@@ -87,11 +87,13 @@ def detect_troubled_cells(
     u: NamedNumpyArray,
     u_candidate: NamedNumpyArray,
     dims: str = "xyz",
-    NAD_tolerance: float = 1e-5,
-    NAD_mode: str = "global",
-    PAD: dict = None,
+    NAD_eps: float = 1e-5,
+    mode: str = "global",
+    range_type: str = "relative",
+    NAD_vars: list = None,
+    PAD_bounds: Dict[str, Tuple[float, float]] = None,
     SED: bool = True,
-    SED_tolerance: float = 1e-10,
+    SED_eps: float = 1e-10,
     xp: str = "numpy",
 ) -> np.ndarray:
     """
@@ -99,14 +101,21 @@ def detect_troubled_cells(
         u (NamedArray) : array of values with shape (# variables, nx, ny, nz). if u is a NamedArray, the output will still be a numpy-like array
         u_candidate (NameArray) : array of candidate values with shape (# variables, nx, ny, nz)
         dims (str) : contains "x", "y", and/or "z"
-        NAD_tolerance (float) : tolerance for NAD
-        NAD_mode (str) : "global" or "local"
+        NAD_eps (float) : tolerance for NAD
+        mode (str) : "global" or "local"
             "global" : NAD is applied based on the global range of each variable
             "local" : NAD is applied based on the local range of each variable
-        global_NAD: (bool) :
-        PAD (dict) : dictionary of PAD parameters with keys given by the variables in u
+        range_type (str) : "relative" or "absolute"
+            "relative" : NAD is applied based on the relative range of each variable
+                upper_bound = max + (max - min) * eps
+                lower_bound = min - (max - min) * eps
+            "absolute" : NAD is applied based on the absolute range of each variable
+                upper_bound = (1 + eps) * max
+                lower_bound = (1 - eps) * min
+        NAD_vars (list) : list of variables to apply NAD. if None, all variables are considered
+        PAD_bounds (dict) : dictionary of PAD parameters. keys are variable names, values are tuples of lower and upper bounds, e.g. {"u": (0, 1)}. PAD is not applied if None
         SED (bool) : remove NAD trouble flags where a smooth extremum is detected
-        SED_tolerance (float) : tolerance for avoiding dividing by 0 in smooth extrema detection
+        SED_eps (float) : tolerance for avoiding dividing by 0 in smooth extrema detection
         xp (str) : 'numpy' or 'cupy'
     returns:
         trouble (array_like) : array of troubled cells indicated by 1, shape (nx - 2, ny - 2, nz - 2)
@@ -127,61 +136,82 @@ def detect_troubled_cells(
     footprint_shape = tuple(footprint_shape)
     interior_slice = tuple(interior_slice)
 
-    # take minimum of neighbors
+    # filter views
+    if NAD_vars is None:
+        u_copy = u.copy()
+        u_candidate_copy = u_candidate.copy()
+    else:
+        u_copy = u.filter(NAD_vars)
+        u_candidate_copy = u_candidate.filter(NAD_vars)
+    u_candidate_inner = u_candidate_copy[interior_slice]
+
+    # take maximum and minimum of neighbors
     footprint = np.ones(footprint_shape)
     if xp == "numpy" or not CUPY_AVAILABLE:
-        M = maximum_filter(u, footprint=footprint, mode="constant", cval=0)[
+        M = maximum_filter(u_copy, footprint=footprint, mode="constant", cval=0)[
             interior_slice
         ]
-        m = minimum_filter(u, footprint=footprint, mode="constant", cval=0)[
+        m = minimum_filter(u_copy, footprint=footprint, mode="constant", cval=0)[
             interior_slice
         ]
     elif xp == "cupy":
-        M = cp_maximum_filter(u, footprint=footprint, mode="constant", cval=0)[
+        M = cp_maximum_filter(u_copy, footprint=footprint, mode="constant", cval=0)[
             interior_slice
         ]
-        m = cp_minimum_filter(u, footprint=footprint, mode="constant", cval=0)[
+        m = cp_minimum_filter(u_copy, footprint=footprint, mode="constant", cval=0)[
             interior_slice
         ]
     else:
         raise ValueError(f"Unknown xp: {xp}")
 
-    # get relevant view of u_candidate
-    u_candidate_inner = u_candidate[interior_slice]
-
-    # get variable ranges
-    if NAD_mode == "global":
-        # global NAD for each variable
-        u_range = np.max(u, axis=(1, 2, 3), keepdims=True) - np.min(
-            u, axis=(1, 2, 3), keepdims=True
+    # compute NAD indicator and trouble flags
+    if range_type == "relative":
+        if mode == "global":
+            # relative global NAD
+            u_range = np.max(u_copy, axis=(1, 2, 3), keepdims=True) - np.min(
+                u_copy, axis=(1, 2, 3), keepdims=True
+            )
+            u_range = u_copy.__class__(u_range, u_copy.variable_names)
+        elif mode == "local":
+            # relative local NAD
+            u_range = M - m
+        else:
+            raise ValueError(f"Unknown mode: {mode}")
+        local_undershoot = u_candidate_inner - m
+        local_overshoot = M - u_candidate_inner
+        NAD_indicator_per_var = np.minimum(local_undershoot, local_overshoot)
+        NAD_trouble_per_var = NAD_indicator_per_var < -NAD_eps * u_range
+    elif range_type == "absolute":
+        if mode == "global":
+            # absolute global NAD
+            lower_bound = (1 - NAD_eps) * np.min(u_copy, axis=(1, 2, 3), keepdims=True)
+            upper_bound = (1 + NAD_eps) * np.max(u_copy, axis=(1, 2, 3), keepdims=True)
+        elif mode == "local":
+            # absolute local NAD
+            lower_bound = (1 - NAD_eps) * m
+            upper_bound = (1 + NAD_eps) * M
+        else:
+            raise ValueError(f"Unknown mode: {mode}")
+        NAD_indicator_per_var = np.minimum(
+            u_candidate_inner - lower_bound, upper_bound - u_candidate_inner
         )
-        u_range = u.__class__(u_range, u.variable_names)
-    elif NAD_mode == "local":
-        # local NAD for each variable
-        u_range = M - m
+        NAD_trouble_per_var = NAD_indicator_per_var < 0.0
     else:
-        raise ValueError(f"Unknown NAD_mode: {NAD_mode}")
-
-    # compute NAD trouble per variable
-    tolerance_per_var = NAD_tolerance * u_range
-    local_undershoot = u_candidate_inner - m
-    local_overshoot = M - u_candidate_inner
-    NAD_indicator_per_var = np.minimum(local_undershoot, local_overshoot)
-    NAD_trouble_per_var = NAD_indicator_per_var < -tolerance_per_var
+        raise ValueError(f"Unknown range_type: {range_type}")
 
     # smooth extrema detection per variable
     if SED:
         if len(dims) == 1:
             alpha_per_var = compute_1d_smooth_extrema_detector(
-                u_candidate, dim=dims, eps=SED_tolerance
+                u_candidate_copy, dim=dims, eps=SED_eps
             )
         elif len(dims) == 2:
             alpha_per_var = compute_2d_smooth_extrema_detector(
-                u_candidate, dims=dims, eps=SED_tolerance
+                u_candidate_copy, dims=dims, eps=SED_eps
             )
         elif len(dims) == 3:
             alpha_per_var = compute_3d_smooth_extrema_detector(
-                u_candidate, eps=SED_tolerance
+                u_candidate_copy, eps=SED_eps
             )
         else:
             raise ValueError(f"Invalid dims specified: {dims}")
@@ -196,17 +226,14 @@ def detect_troubled_cells(
 
     # PAD
     PAD_trouble = np.zeros_like(NAD_trouble, dtype=bool)
-    PAD_violation_magnitude = np.zeros_like(NAD_trouble, dtype=float)
-    if PAD is not None:
-        for var in u_candidate_inner.variable_names:
-            lower_PAD_difference = getattr(u_candidate_inner, var) - PAD[var][0]
-            upper_PAD_difference = PAD[var][1] - getattr(u_candidate_inner, var)
+    if PAD_bounds is not None:
+        for var, (lowr, uppr) in PAD_bounds.items():
+            if var not in u_candidate_inner.variable_names:
+                raise ValueError(f"Variable {var} not found in u")
+            lower_PAD_difference = getattr(u_candidate_inner, var) - lowr
+            upper_PAD_difference = uppr - getattr(u_candidate_inner, var)
             PAD_difference = np.minimum(lower_PAD_difference, upper_PAD_difference)
             PAD_trouble[...] = np.where(PAD_difference < 0, 1, PAD_trouble)
-            PAD_violation_magnitude[...] = np.maximum(
-                np.where(PAD_difference < 0, -PAD_difference, 0),
-                PAD_violation_magnitude,
-            )
 
     trouble = np.where(PAD_trouble, 1, NAD_trouble)
 

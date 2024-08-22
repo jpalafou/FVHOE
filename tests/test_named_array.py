@@ -1,7 +1,9 @@
+from fvhoe.config import primitive_names
 from fvhoe.named_array import NamedCupyArray, NamedNumpyArray
 import numpy as np
 import os
 import pytest
+import random
 from typing import Iterable, Union
 
 
@@ -186,22 +188,27 @@ def test_rename_variables(NamedArray: callable, rename: Union[dict, Iterable]):
 
 
 @pytest.mark.parametrize("NamedArray", [NamedCupyArray, NamedNumpyArray])
-@pytest.mark.parametrize("name", [[], "cat", ["fish", "monkey"]])
-def test_remove(NamedArray: callable, name: Union[str, Iterable]):
+@pytest.mark.parametrize("size", [1, 2, 3, 4, 5])
+def test_filter(NamedArray: callable, size: int):
     """
-    test deleting variables
+    test filtering variables
     args:
         NamedArray (callable) : NamedNumpyArray or NamedCupyArray
-        name (str or Iterable) : names of variables to remove
+        size (int) : number of variables to filter
     """
+    # create named array
+    names = primitive_names
     x = np.linspace(1, 125, 125).reshape(5, 5, 5)
-    x_nnp = NamedArray(x, ["cat", "dog", "fish", "monkey", "snake"])
-    shorter_x_nnp = x_nnp.remove(name)
+    x_nnp = NamedArray(x, names)
 
-    remove_length = 1 if isinstance(name, str) else len(name)
-    assert shorter_x_nnp.shape[0] + remove_length == x_nnp.shape[0]
-    assert np.all(x_nnp.dog == shorter_x_nnp.dog)
-    assert np.all(x_nnp.snake == shorter_x_nnp.snake)
+    # filter names
+    sampled_names = random.sample(names, size)
+    shorter_x_nnp = x_nnp.filter(sampled_names)
+
+    assert x_nnp.shape[0] == 5 and len(x_nnp.variable_names) == 5
+    assert shorter_x_nnp.shape[0] == size and len(shorter_x_nnp.variable_names) == size
+    for name in sampled_names:
+        assert np.all(getattr(x_nnp, name) == getattr(shorter_x_nnp, name))
 
 
 @pytest.mark.parametrize("NamedArray", [NamedCupyArray, NamedNumpyArray])

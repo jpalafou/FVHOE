@@ -1,9 +1,81 @@
 from functools import partial
 from fvhoe.boundary_conditions import BoundaryCondition
+from fvhoe.config import primitive_names
 from fvhoe.initial_conditions import double_shock_1d, sedov
+from fvhoe.named_array import NamedNumpyArray
+from fvhoe.slope_limiting import detect_troubled_cells
 from fvhoe.solver import EulerSolver
+import numpy as np
 import pytest
 from tests.test_utils import l2err
+
+
+@pytest.mark.parametrize("dim", ["x", "xy", "xyz"])
+@pytest.mark.parametrize("NAD_eps", [1e-2, 1e-5])
+@pytest.mark.parametrize("mode", ["local", "global"])
+@pytest.mark.parametrize("range_type", ["relative", "absolute"])
+@pytest.mark.parametrize("NAD_vars", [None, ["rho", "P"]])
+@pytest.mark.parametrize("PAD_bounds", [None, {"rho": (0, np.inf), "P": (0, np.inf)}])
+@pytest.mark.parametrize("SED", [False, True])
+def test_detect_troubled_cells(
+    dim: str,
+    NAD_eps: float,
+    mode: str,
+    range_type: str,
+    NAD_vars: list,
+    PAD_bounds: dict,
+    SED: bool,
+    N: int = 64,
+):
+    """
+    test the detect_troubled_cells function
+    args:
+        dim (str) : dimensionality of the problem
+        NAD_eps (float) : NAD epsilon
+        mode (str) : mode of detection
+        range_type (str) : type of range
+        NAD_vars (list) : NAD variables
+        PAD_bounds (dict) : PAD bounds
+        SED (bool) : SED
+        N (int) : resolution
+    """
+
+    w = NamedNumpyArray(
+        np.asarray(
+            [
+                np.random.rand(
+                    N if "x" in dim else 1,
+                    N if "y" in dim else 1,
+                    N if "z" in dim else 1,
+                )
+            ]
+            * 5
+        ),
+        primitive_names,
+    )
+    w_candidate = NamedNumpyArray(
+        np.asarray(
+            [
+                np.random.rand(
+                    N if "x" in dim else 1,
+                    N if "y" in dim else 1,
+                    N if "z" in dim else 1,
+                )
+            ]
+            * 5
+        ),
+        primitive_names,
+    )
+    detect_troubled_cells(
+        u=w,
+        u_candidate=w_candidate,
+        NAD_eps=NAD_eps,
+        mode=mode,
+        range_type=range_type,
+        NAD_vars=NAD_vars,
+        PAD_bounds=PAD_bounds,
+        SED=SED,
+    )
 
 
 @pytest.mark.parametrize("p", [8])

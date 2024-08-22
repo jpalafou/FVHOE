@@ -133,37 +133,34 @@ def define_NamedArray_class(name: str, cupy: bool = False):
             out = self.__class__(self, new_names, copy=True)
             return out
 
-        def remove(self, name: Union[str, Iterable]):
+        def filter(self, names: list, copy: bool = True):
             """
-            remove variables
+            filter variables
             args:
-                name (str or Iterable) : names of variables to remove
+                names (list) : list of variable names to keep
+            returns:
+                out (NamedArray) : NamedArray with only the specified variables
             """
-            names = [name] if isinstance(name, str) else name
-
-            # delete rows from first axis
-            remove_idxs = tuple(self.variable_indices[iname] for iname in names)
-            out = np.delete(self, remove_idxs, axis=0)
-
-            # revise variable data
-            for iname in names:
-                out.variable_names = list(out.variable_names)
-                out.variable_names.remove(iname)  # remove iname from list
-                out.variable_name_set -= set([iname])  # remove iname from set
-            out.variable_indices = {
-                namei: i for i, namei in enumerate(out.variable_names)
-            }
-
+            idxs = np.nonzero(np.isin(self.variable_names, names))[0]
+            filered_names = [self.variable_names[i] for i in idxs]
+            out = self.__class__(self[idxs], filered_names, copy)
             return out
 
         def merge(self, other, copy=False):
             """
             merge NamedArray with another NamedArray
+            args:
+                self (NamedArray) : NamedArray to merge
+                other (NamedArray) : NamedArray to merge
+            returns:
+                out (NamedArray) : NamedArray with concatenated arrays
             """
-            # find and remove_common variables
+            # find and remove common variables
             common_variables = list(self.variable_name_set & other.variable_name_set)
             if len(common_variables) > 0:
-                other = other.remove(common_variables)
+                other = other.filter(
+                    list(set(other.variable_names) - set(common_variables))
+                )
 
             # concatenate arrays
             out_arr = np.concatenate((self, other), axis=0)
