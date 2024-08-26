@@ -16,10 +16,17 @@ NAD_values = [1e-2, 1e-3, 1e-5]
 NAD_mode_values = ["global", "local"]
 NAD_range_values = ["relative", "absolute"]
 NAD_vars_values = [None, ["rho", "P"]]
+convex = [False, True]
 NAD_configs = [
-    {"NAD": NAD, "NAD_mode": NAD_mode, "NAD_range": NAD_range, "NAD_vars": NAD_vars}
-    for NAD, NAD_mode, NAD_range, NAD_vars in product(
-        NAD_values, NAD_mode_values, NAD_range_values, NAD_vars_values
+    {
+        "NAD": NAD,
+        "NAD_mode": NAD_mode,
+        "NAD_range": NAD_range,
+        "NAD_vars": NAD_vars,
+        "convex": convex,
+    }
+    for NAD, NAD_mode, NAD_range, NAD_vars, convex in product(
+        NAD_values, NAD_mode_values, NAD_range_values, NAD_vars_values, convex
     )
 ]
 

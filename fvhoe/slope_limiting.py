@@ -271,15 +271,24 @@ def broadcast_to_troubled_interfaces(
     """
     # allocate troubled interface arrays
     nx, ny, nz = trouble.shape
-    troubled_x_interfaces = np.zeros((nx + 1, ny, nz))
-    troubled_y_interfaces = np.zeros((nx, ny + 1, nz))
-    troubled_z_interfaces = np.zeros((nx, ny, nz + 1))
+    using_cupy = xp == "cupy" and CUPY_AVAILABLE
+    if using_cupy:
+        troubled_x_interfaces = cp.zeros((nx + 1, ny, nz))
+        troubled_y_interfaces = cp.zeros((nx, ny + 1, nz))
+        troubled_z_interfaces = cp.zeros((nx, ny, nz + 1))
+    else:
+        troubled_x_interfaces = np.zeros((nx + 1, ny, nz))
+        troubled_y_interfaces = np.zeros((nx, ny + 1, nz))
+        troubled_z_interfaces = np.zeros((nx, ny, nz + 1))
     if convex:
         xdim, ydim, zdim = "x" in dims, "y" in dims, "z" in dims
         nx_alloc = trouble.shape[0] + 4 if xdim else 1
         ny_alloc = trouble.shape[1] + 4 if ydim else 1
         nz_alloc = trouble.shape[2] + 4 if zdim else 1
-        alloc_trouble = np.zeros((nx_alloc, ny_alloc, nz_alloc))
+        if using_cupy:
+            alloc_trouble = cp.zeros((nx_alloc, ny_alloc, nz_alloc))
+        else:
+            alloc_trouble = np.zeros((nx_alloc, ny_alloc, nz_alloc))
         slices = [
             slice(2, -2) if xdim else slice(None),
             slice(2, -2) if ydim else slice(None),
@@ -288,21 +297,14 @@ def broadcast_to_troubled_interfaces(
         alloc_trouble[tuple(slices)] = trouble
         # apply periodic boundary conditions
         if periodic_x and xdim:
-            alloc_trouble[:2, :, :] = trouble[-4:-2, :, :]
-            alloc_trouble[-2:, :, :] = trouble[2:4, :, :]
+            alloc_trouble[:2, 2:-2, 2:-2] = trouble[-2:, :, :]
+            alloc_trouble[-2:, 2:-2, 2:-2] = trouble[:2, :, :]
         if periodic_y and ydim:
-            alloc_trouble[:, :2, :] = trouble[:, -4:-2, :]
-            alloc_trouble[:, -2:, :] = trouble[:, 2:4, :]
+            alloc_trouble[2:-2, :2, 2:-2] = trouble[:, -2:, :]
+            alloc_trouble[2:-2, -2:, 2:-2] = trouble[:, :2, :]
         if periodic_z and zdim:
-            alloc_trouble[:, :, :2] = trouble[:, :, -4:-2]
-            alloc_trouble[:, :, -2:] = trouble[:, :, 2:4]
-    # convert to cupy if necessary
-    if xp == "cupy" and CUPY_AVAILABLE:
-        troubled_x_interfaces = cp.asarray(troubled_x_interfaces)
-        troubled_y_interfaces = cp.asarray(troubled_y_interfaces)
-        troubled_z_interfaces = cp.asarray(troubled_z_interfaces)
-        if convex:
-            alloc_trouble = cp.asarray(alloc_trouble)
+            alloc_trouble[2:-2, 2:-2, :2] = trouble[2:-2, 2:-2, -2:]
+            alloc_trouble[2:-2, 2:-2, -2:] = trouble[2:-2, 2:-2, :2]
     # broadcast troubled cells to interfaces
     if convex:
         # convex broadcast
