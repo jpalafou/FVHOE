@@ -15,6 +15,7 @@ def EulerSolver_wrapper(
     T: float = 1.0,
     integrator: int = -1,
     n_snapshots: int = 2,
+    overwrite: bool = False,
     plot_kwargs: dict = dict(z=0.5),
     **kwargs,
 ) -> EulerSolver:
@@ -30,6 +31,7 @@ def EulerSolver_wrapper(
         T (float) : simulation time
         integrator (int) : integrator order. if -1, EulerSolver.rkorder() is used.
         n_snapshots (int) : number of snapshots to record. must be at least 2 (start and stop).
+        overwrite (bool) : if True, overwrite existing snapshots
         plot_kwargs (dict) : passed to density plot
         **kwargs : passed to EulerSolver
     returns:
@@ -78,7 +80,10 @@ def EulerSolver_wrapper(
         **kwargs,
     )
     integrator_config = dict(
-        T=T, snapshot_dir=snapshot_dir, downbeats=np.linspace(0, T, n_snapshots)
+        T=T,
+        snapshot_dir=snapshot_dir,
+        downbeats=np.linspace(0, T, n_snapshots),
+        overwrite=overwrite,
     )
 
     # run solver
