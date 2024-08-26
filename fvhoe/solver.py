@@ -783,7 +783,6 @@ class EulerSolver(ODE):
         # log troubles
         if self.a_posteriori_slope_limiting:
             trouble = self.trouble
-            print(trouble.shape)
             NAD_mag = self.NAD_violation_magnitude
             PAD_mag = self.PAD_violation_magnitude
 
@@ -816,15 +815,13 @@ class EulerSolver(ODE):
 
         self.timer.stop("snapshot")
 
-    def read_snapshots(self, overwrite: bool) -> bool:
+    def read_snapshots(self) -> bool:
         """
         read snapshots from a pickle file
-        args:
-            overwrite (bool) : overwrite the file if it exists
         returns:
             out (bool) : whether a file was found
         """
-        if os.path.exists(self.snapshot_dir) and not overwrite:
+        if os.path.exists(self.snapshot_dir):
             with open(os.path.join(self.snapshot_dir, "arrs.pkl"), "rb") as f:
                 self.snapshots = pickle.load(f)
             print(f"Read from snapshot directory {self.snapshot_dir}")

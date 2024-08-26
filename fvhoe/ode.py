@@ -116,9 +116,9 @@ class ODE(ABC):
         save = snapshot_dir is not None
         if save:
             self.snapshot_dir = os.path.normpath(snapshot_dir)
-            snapshot_already_found = self.read_snapshots(overwrite)
-            if snapshot_already_found:
-                return
+            if not overwrite:
+                if self.read_snapshots():
+                    return
 
         # initialize progress bar
         self.progress_bar_action(action="setup", T=T)
@@ -196,15 +196,19 @@ class ODE(ABC):
             elif action == "cleanup":
                 self.progress_bar.close()
 
-    def read_snapshots(self):
+    def read_snapshots(self) -> bool:
         """
         read snapshots if they exist
+        returns:
+            bool : whether snapshots were read
         """
         pass
 
-    def write_snapshots(self):
+    def write_snapshots(self, overwrite: bool = False):
         """
         overwrite to save snapshots
+        args:
+            overwrite (bool) : overwrite the snapshot directory if it exists
         """
         pass
 
