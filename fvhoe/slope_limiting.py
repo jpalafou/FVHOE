@@ -177,9 +177,10 @@ def detect_troubled_cells(
             u_range = M - m
         else:
             raise ValueError(f"Unknown mode: {mode}")
-        local_undershoot = u_candidate_inner - m
-        local_overshoot = M - u_candidate_inner
-        NAD_indicator_per_var = np.minimum(local_undershoot, local_overshoot)
+        NAD_indicator_per_var = u_candidate_inner - m  # local undershoot
+        NAD_indicator_per_var[...] = np.minimum(
+            NAD_indicator_per_var, M - u_candidate_inner
+        )  # local overshoot
         NAD_trouble_per_var = NAD_indicator_per_var < -NAD_eps * u_range
     elif range_type == "absolute":
         if mode == "global":
@@ -225,19 +226,24 @@ def detect_troubled_cells(
     NAD_violation_magnitude = np.where(NAD_trouble, -NAD_indicator, 0)
 
     # PAD
-    PAD_trouble = np.zeros_like(NAD_trouble, dtype=bool)
+    PAD_indicator = np.zeros_like(NAD_violation_magnitude)
     if PAD_bounds is not None:
         for var, (lowr, uppr) in PAD_bounds.items():
             if var not in u_candidate_inner.variable_names:
                 raise ValueError(f"Variable {var} not found in u")
-            lower_PAD_difference = getattr(u_candidate_inner, var) - lowr
-            upper_PAD_difference = uppr - getattr(u_candidate_inner, var)
-            PAD_difference = np.minimum(lower_PAD_difference, upper_PAD_difference)
-            PAD_trouble[...] = np.where(PAD_difference < 0, 1, PAD_trouble)
+            PAD_indicator[...] = (
+                getattr(u_candidate_inner, var) - lowr
+            )  # lower PAD difference
+            PAD_indicator[...] = np.minimum(
+                PAD_indicator, uppr - getattr(u_candidate_inner, var)
+            )  # upper PAD difference
+    PAD_trouble = np.where(PAD_indicator < 0.0, 1, 0)
+    PAD_violation_magnitude = np.where(PAD_trouble, -PAD_indicator, 0)
 
+    # combine NAD and PAD
     trouble = np.where(PAD_trouble, 1, NAD_trouble)
 
-    return trouble, NAD_violation_magnitude
+    return trouble, NAD_violation_magnitude, PAD_violation_magnitude
 
 
 def broadcast_to_troubled_interfaces(
@@ -326,9 +332,10 @@ def broadcast_to_troubled_interfaces(
             slices[{"x": 0, "y": 1, "z": 2}[dims[0]]] = slice(None)
             slices[{"x": 0, "y": 1, "z": 2}[dims[1]]] = slice(None)
             alloc_trouble_2d = alloc_trouble[tuple(slices)]
-            convex_troubled_x_interfaces, convex_troubled_y_interfaces = (
-                convex_2d_broadcast_to_troubled_interfaces(alloc_trouble_2d)
-            )
+            (
+                convex_troubled_x_interfaces,
+                convex_troubled_y_interfaces,
+            ) = convex_2d_broadcast_to_troubled_interfaces(alloc_trouble_2d)
             if dims in ["xy", "yx"]:
                 troubled_x_interfaces[...] = convex_troubled_x_interfaces.reshape(
                     nx + 1, ny, 1

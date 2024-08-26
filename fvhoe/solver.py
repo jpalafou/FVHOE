@@ -301,6 +301,7 @@ class EulerSolver(ODE):
         self.convex = convex
         self.trouble = np.zeros_like(u0_fv[0])
         self.NAD_violation_magnitude = np.zeros_like(u0_fv[0])
+        self.PAD_violation_magnitude = np.zeros_like(u0_fv[0])
         self.trouble_counter = 1
 
         # floors
@@ -591,7 +592,7 @@ class EulerSolver(ODE):
 
         # detect troubled cells
         self.timer.start("revise_fluxes/detect_troubled_cells")
-        troubled_cells, NAD_mag = detect_troubled_cells(
+        troubled_cells, NAD_mag, PAD_mag = detect_troubled_cells(
             u=w,
             u_candidate=w_star,
             dims=self.dims,
@@ -608,7 +609,7 @@ class EulerSolver(ODE):
         if force_trouble:
             troubled_cells = np.ones_like(troubled_cells, dtype=bool)
 
-        self.log_troubles(troubled_cells, NAD_mag)
+        self.log_troubles(troubled_cells, NAD_mag, PAD_mag)
 
         if not np.any(troubled_cells):
             # great, no troubled cells!
@@ -704,8 +705,9 @@ class EulerSolver(ODE):
 
     def log_troubles(
         self,
-        trouble: np.ndarray,
-        NAD_violation_magnitude: np.ndarray,
+        trouble: np.ndarray = None,
+        NAD_violation_magnitude: np.ndarray = None,
+        PAD_violation_magnitude: np.ndarray = None,
         reset: bool = False,
     ) -> None:
         """
@@ -713,19 +715,23 @@ class EulerSolver(ODE):
         args:
             trouble (array_like) : array of troubled cells
             NAD_violation_magnitude (array_like) : array of PAD violation magnitudes
-            reset (bool) : reset the trouble counter
+            PAD_violation_magnitude (array_like) : array of PAD violation magnitudes
+            reset (bool) : reset the trouble counter. if true, ignores all other arguments
         """
         if reset:
             self.trouble /= self.trouble_counter
             self.NAD_violation_magnitude /= self.trouble_counter
+            self.PAD_violation_magnitude /= self.trouble_counter
             self.trouble_counter = 0
             return
         if self.trouble_counter == 0:
             self.trouble[...] = trouble
             self.NAD_violation_magnitude[...] = NAD_violation_magnitude
+            self.PAD_violation_magnitude[...] = PAD_violation_magnitude
         else:
             self.trouble += trouble
             self.NAD_violation_magnitude += NAD_violation_magnitude
+            self.PAD_violation_magnitude += PAD_violation_magnitude
         self.trouble_counter += 1
 
     def step_helper_function(self):
@@ -734,7 +740,7 @@ class EulerSolver(ODE):
         self.timeseries_rho = np.append(self.timeseries_rho, np.mean(self.u.rho).item())
         # log
         if self.a_posteriori_slope_limiting:
-            self.log_troubles(trouble=None, NAD_violation_magnitude=None, reset=True)
+            self.log_troubles(reset=True)
 
     def snapshot(self):
         """
@@ -777,7 +783,9 @@ class EulerSolver(ODE):
         # log troubles
         if self.a_posteriori_slope_limiting:
             trouble = self.trouble
+            print(trouble.shape)
             NAD_mag = self.NAD_violation_magnitude
+            PAD_mag = self.PAD_violation_magnitude
 
         # convert cupy arrays to numpy arrays
         if self.cupy and CUPY_AVAILABLE:
@@ -785,6 +793,7 @@ class EulerSolver(ODE):
             if self.a_posteriori_slope_limiting:
                 trouble = cp.asnumpy(self.trouble)
                 NAD_mag = cp.asnumpy(self.NAD_violation_magnitude)
+                PAD_mag = cp.asnumpy(self.PAD_violation_magnitude)
 
         # append dictionary to list of snapshots
         log = {
@@ -797,6 +806,7 @@ class EulerSolver(ODE):
         if self.a_posteriori_slope_limiting:
             log["trouble"] = trouble
             log["NAD violation magnitude"] = NAD_mag
+            log["PAD violation magnitude"] = PAD_mag
 
         self.snapshots.append(log)
         self.snapshot_times.append(self.t)

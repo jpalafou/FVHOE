@@ -99,10 +99,37 @@ def get_velocity_magnitude(w) -> np.ndarray:
     return out
 
 
+def plotting_trouble(snapshot: dict, mode: str, tol: float) -> np.ndarray:
+    """
+    get an array of trouble to overlay on plots
+    args:
+        snapshot (dict) : snapshot dictionary
+        mode (str) : None, "all", "NAD", or "PAD"
+        tol (float) : tolerance for trouble based on magnitude of NAD violation
+    """
+    trouble = snapshot["trouble"]
+    NAD_mag = snapshot["NAD violation magnitude"]
+    PAD_mag = snapshot["PAD violation magnitude"]
+    if not np.all(
+        np.where(trouble > 0, 1, 0) == np.logical_or(NAD_mag > 0, PAD_mag > 0)
+    ):
+        raise ValueError("trouble must be consistent with NAD and PAD")
+    if mode == "all":
+        out = np.where(PAD_mag > 0, 1, np.where(NAD_mag > tol, 1, 0))
+    elif mode == "NAD":
+        out = np.where(NAD_mag > tol, 1, 0)
+    elif mode == "PAD":
+        out = np.where(PAD_mag > 0, 1, 0)
+    else:
+        raise ValueError("plotting_trouble mode must be None, 'all', 'NAD', or 'PAD'")
+    return out
+
+
 def plot_1d_slice(
     solver,
     ax,
     param: str,
+    trouble_mode: str = "all",
     t: float = None,
     x: float = None,
     y: float = None,
@@ -117,6 +144,7 @@ def plot_1d_slice(
         solver (EulerSolver) : EulerSolver object or snapshot list
         ax (Axes) : Axes object
         param (str) : parameter to plot
+        trouble_mode (str) : "all", "NAD", or "PAD". only used if param="trouble"
         t (float) : time. nearest snapshot time is used if it is not in the list of snapshot times
         x (float) : x-coordinate. nearest x-coordinate is used if it is not in the list of x-coordinates
         y (float) : y-coordinate. nearest y-coordinate is used if it is not in the list of y-coordinates
@@ -141,9 +169,7 @@ def plot_1d_slice(
         raise BaseException("One out of the three coordinates x-y-z must be None")
     # y-data
     if param == "trouble":
-        trouble = snapshots[n]["trouble"]
-        NAD_mag = snapshots[n]["NAD violation magnitude"]
-        source_array = np.where(NAD_mag > tol, trouble, 0)
+        source_array = plotting_trouble(snapshots[n], mode=trouble_mode, tol=tol)
     elif param == "v":
         source_array = get_velocity_magnitude(snapshots[n]["w"])
     else:
@@ -165,7 +191,7 @@ def plot_2d_slice(
     x: float = None,
     y: float = None,
     z: float = None,
-    overlay_trouble: bool = False,
+    overlay_trouble: str = None,
     tol: float = 0,
     cmap: str = "GnBu_r",
     trouble_color: str = "red",
@@ -187,7 +213,11 @@ def plot_2d_slice(
         x (float) : x-coordinate. nearest x-coordinate is used if it is not in the list of x-coordinates
         y (float) : y-coordinate. nearest y-coordinate is used if it is not in the list of y-coordinates
         z (float) : z-coordinate. nearest z-coordinate is used if it is not in the list of z-coordinates
-        overlay_trouble (bool) : overlay trouble on the plot
+        overlay_trouble (str) : None, "all", "NAD", or "PAD"
+            None, False : no overlay
+            "all", True : overlay all trouble
+            "NAD" : overlay NAD trouble
+            "PAD" : overlay PAD trouble
         tol (float) : tolerance for trouble based on magnitude of NAD violation
         cmap (str) : colormap
         trouble_color (str) : color for trouble
@@ -223,12 +253,16 @@ def plot_2d_slice(
         y_for_plotting[-1],
     )
     # get z data
-    if param == "trouble" or overlay_trouble:
-        trouble = snapshots[n]["trouble"][slices]
-        NAD_mag = snapshots[n]["NAD violation magnitude"][slices]
-        trouble_for_plotting = np.where(NAD_mag > tol, trouble, 0)
+    if overlay_trouble:
+        trouble_for_plotting = plotting_trouble(
+            snapshots[n], mode=overlay_trouble, tol=tol
+        )[slices]
     if param == "trouble":
         source_array = snapshots[n]["trouble"]
+    elif param == "NAD":
+        source_array = snapshots[n]["NAD violation magnitude"]
+    elif param == "PAD":
+        source_array = snapshots[n]["PAD violation magnitude"]
     elif param == "v":
         source_array = get_velocity_magnitude(snapshots[n]["w"])
     else:
