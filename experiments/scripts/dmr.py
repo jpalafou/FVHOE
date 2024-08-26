@@ -4,8 +4,26 @@ from fvhoe.config import conservative_names
 from fvhoe.initial_conditions import double_mach_reflection_2d
 from fvhoe.named_array import NamedNumpyArray, NamedCupyArray
 from fvhoe.scripting import EulerSolver_wrapper
+from itertools import product
 import numpy as np
+import os
 
+# job array index
+idx = int(os.environ["SLURM_ARRAY_TASK_ID"])
+
+# configure NAD
+NAD_values = [1e-2, 1e-3, 1e-5]
+NAD_mode_values = ["global", "local"]
+NAD_range_values = ["relative", "absolute"]
+NAD_vars_values = [None, ["rho", "P"]]
+NAD_configs = [
+    {"NAD": NAD, "NAD_mode": NAD_mode, "NAD_range": NAD_range, "NAD_vars": NAD_vars}
+    for NAD, NAD_mode, NAD_range, NAD_vars in product(
+        NAD_values, NAD_mode_values, NAD_range_values, NAD_vars_values
+    )
+]
+
+# other parameters
 Nx = 960
 p = 4
 
@@ -20,9 +38,8 @@ solver_config = dict(
     gamma=1.4,
     a_posteriori_slope_limiting=p > 0,
     all_floors=True,
-    NAD=1e-2,
-    NAD_mode="global",
     cupy=True,
+    **NAD_configs[idx],
 )
 
 
