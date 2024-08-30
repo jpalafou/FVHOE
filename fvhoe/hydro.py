@@ -88,13 +88,11 @@ def compute_fluxes(
 
 
 def advection_dt(
-    hx: float,
-    vx: float,
-    CFL: float = 0.8,
-    hy: float = 1.0,
-    hz: float = 1.0,
+    h: float,
+    vx: float = 0.0,
     vy: float = 0.0,
     vz: float = 0.0,
+    CFL: float = 0.8,
 ) -> float:
     """
     get time-step size satisfying a CFL for an advection problem
@@ -109,8 +107,7 @@ def advection_dt(
     returns:
         out (float) : time-step size satisfying CFL
     """
-    out = CFL / (np.abs(vx / hx) + np.abs(vy / hy) + np.abs(vz / hz))
-    return out
+    return CFL * h / (vx + vy + vz)
 
 
 def hydro_dt(

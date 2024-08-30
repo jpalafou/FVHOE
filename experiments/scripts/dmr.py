@@ -12,10 +12,10 @@ import os
 idx = int(os.environ["SLURM_ARRAY_TASK_ID"])
 
 # configure NAD
-NAD_values = [1e-2, 1e-3, 1e-5]
-NAD_mode_values = ["global", "local"]
-NAD_range_values = ["relative", "absolute"]
-NAD_vars_values = [None, ["rho", "P"]]
+NAD_values = [1.0, 0.1]  # [1e-2, 1e-3, 1e-5]
+NAD_mode_values = ["local"]
+NAD_range_values = ["relative"]  # ["relative", "absolute"]
+NAD_vars_values = [["rho", "P", "vx", "vy"]]
 convex = [False, True]
 NAD_configs = [
     {
@@ -30,9 +30,11 @@ NAD_configs = [
     )
 ]
 
+print(NAD_configs[idx])
+
 # other parameters
 Nx = 960
-p = 4
+p = 8
 
 # set up solver
 solver_config = dict(
@@ -82,7 +84,7 @@ def upper_bc(x, y, z, t):
 
 # run solver
 EulerSolver_wrapper(
-    project_pref="double-mach-reflection",
+    project_pref="dmr",  # "double-mach-reflection"
     snapshot_parent_dir="/scratch/gpfs/jp7427/fvhoe/snapshots",
     summary_parent_dir="out",
     ic=double_mach_reflection_2d,
