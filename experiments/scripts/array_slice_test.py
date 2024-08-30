@@ -1,30 +1,49 @@
 from functools import partial
-from fvhoe.array_slice import array_slice_generator, conservative_map
-from fvhoe.config import conservative_names
-from fvhoe.fv import get_view
-from fvhoe.named_array import NamedNumpyArray
 import numpy as np
 
-N = 128
+# array manager import
+from fvhoe.array_manager import ArrayManager, get_array_slice
+from fvhoe.config import conservative_names
 
-# initialize arrays
-arr = np.random.rand(5, N, N, N)
-arr_np = arr.copy()
-arr_nnp = NamedNumpyArray(arr_np, conservative_names)
+# named array imporrt
+from fvhoe.named_array import NamedNumpyArray, NamedCupyArray
+from fvhoe.fv import get_view
+
+N = 32
+mode = "both"
+cupy = False
 
 # simplify names
 gv = partial(get_view, ndim=3)
-asg = array_slice_generator
-cm = conservative_map
+gas = get_array_slice
+
+arr = 10 * np.random.rand(5, N, N, N)
+
+if mode in ("am", "both"):
+    am = ArrayManager()
+    if cupy:
+        am.enable_cupy()
+    am.add("u", arr)
+
+if mode in ("nnp", "both"):
+    if cupy:
+        arr_nnp = NamedCupyArray(arr, conservative_names)
+    else:
+        arr_nnp = NamedNumpyArray(arr, conservative_names)
 
 # main experiment
 for _ in range(1000):
-    arr_nnp.rho[gv(axis=0, cut=(2, 2))] -= 1e-6 * np.square(
-        arr_nnp.rho[gv(axis=0, cut=(2, 2))]
-    )
-    arr_np[asg(cm["rho"], x=(2, -2))] -= 1e-6 * np.square(
-        arr_np[asg(cm["rho"], x=(2, -2))]
-    )
+    if mode in ("am", "both"):
+        arr_am = am.get("u")
+        arr_am[gas("rho", x=(2, -2))] -= 1e-12 * np.square(
+            arr_am[gas("rho", x=(2, -2))]
+        )
+
+    if mode in ("nnp", "both"):
+        arr_nnp.rho[gv(axis=0, cut=(2, 2))] -= 1e-12 * np.square(
+            arr_nnp.rho[gv(axis=0, cut=(2, 2))]
+        )
 
 # check results
-print(np.mean(np.abs(arr_nnp.rho - arr_np[asg(cm["rho"])])))
+if mode == "both":
+    print(np.mean(np.abs(arr_nnp.rho - arr_am[gas("rho")])))
