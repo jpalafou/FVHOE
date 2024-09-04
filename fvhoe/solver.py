@@ -1,5 +1,5 @@
+from fvhoe.array_manager import get_array_slice as slc
 from fvhoe.boundary_conditions import BoundaryCondition
-from fvhoe.config import conservative_names
 from fvhoe.fv import (
     conservative_interpolation,
     fv_average,
@@ -10,7 +10,6 @@ from fvhoe.fv import (
 )
 from fvhoe.hydro import compute_conservatives, compute_primitives, hydro_dt
 from fvhoe.initial_conditions import square
-from fvhoe.named_array import NamedCupyArray, NamedNumpyArray
 from fvhoe.ode import ODE
 from fvhoe.riemann_solvers import advection_upwind, hllc, llf
 from fvhoe.slope_limiting import (
@@ -22,14 +21,14 @@ from fvhoe.timer import Timer
 from fvhoe.visualization import plot_1d_slice, plot_2d_slice
 from itertools import product
 import json
+import matplotlib.pyplot as plt
 import numpy as np
 import os
-import shutil
 import pickle
+import shutil
 from typing import Iterable, Tuple
 
 try:
-    import cupy as cp
     from cupy import ndarray as cp_ndarray
 
     CUPY_AVAILABLE = True
@@ -66,7 +65,7 @@ class EulerSolver(ODE):
         NAD: float = 1e-2,
         NAD_mode: str = "global",
         NAD_range: str = "relative",
-        NAD_vars: list = None,
+        NAD_vars: tuple = None,
         PAD: dict = None,
         SED: bool = True,
         SED_tolerance: float = 1e-10,
@@ -76,7 +75,6 @@ class EulerSolver(ODE):
         rho_P_sound_speed_floor: bool = False,
         all_floors: bool = False,
         progress_bar: bool = True,
-        dumpall: bool = False,
         snapshots_as_fv_averages: bool = True,
         snapshot_helper_function: callable = None,
         slab_buffer_size: int = 30,
@@ -91,7 +89,7 @@ class EulerSolver(ODE):
             vz (z-velocity)
         implemented in 1D, 2D, and 3D
         args:
-            w0(X, Y, Z) (callable) : function of a 3D mesh. returns NamedArray of shape
+            w0(X, Y, Z) (callable) : function of a 3D mesh. returns array_like of shape
                 (5, nz, ny, nz)
             nx (int) : number of cells along x-direction. ignore by setting nx=1, px=0
             ny (int) : number of cells along y-direction. ignore by setting ny=1, py=0
@@ -128,7 +126,7 @@ class EulerSolver(ODE):
                 "absolute" : NAD is applied based on the absolute range of each variable
                     upper_bound = (1 + eps) * max
                     lower_bound = (1 - eps) * min
-            NAD_vars (list) : list of variables to apply NAD. if None, all variables are considered
+            NAD_vars (tuple) : tuple of variables to apply NAD. if None, all variables are considered
             PAD (dict) : primitive variable limits for slope limiting
             SED (bool) : whether to ignore NAD trouble where smooth extrema are detected
             SED_tolerance (float) : tolerance for avoiding dividing by 0 in smooth extrema detection
@@ -138,7 +136,6 @@ class EulerSolver(ODE):
             rho_P_sound_speed_floor (bool) : whether to apply a pressure and density floor in the sound speed function
             all_floors (bool) : apply all floors
             progress_bar (bool) : whether to print out a progress bar
-            dumpall (bool) : save all variables in snapshot
             snapshots_as_fv_averages (bool) : save snapshots as finite volume averages. if false, save as cell centers
             snapshot_helper_function (callable) : function to call at the end of a snapshot with self as the sole argument
             slab_buffer_size (int) : for applying boundary conditions
@@ -193,11 +190,8 @@ class EulerSolver(ODE):
                 raise TypeError(f"Invalid Riemann solver {riemann_solver}")
 
         # data management
-        self.dumpall = dumpall
         self.snapshots_as_fv_averages = snapshots_as_fv_averages
         self.snapshot_helper_function = snapshot_helper_function
-        self.cupy = cupy
-        self.NamedArray = NamedCupyArray if cupy else NamedNumpyArray
 
         # timing
         self.timer = Timer(
@@ -231,7 +225,6 @@ class EulerSolver(ODE):
             u0_fv = u0(x=self.X, y=self.Y, z=self.Z)
         else:
             u0_fv = fv_average(f=u0, x=self.X, y=self.Y, z=self.Z, h=self.h, p=self.p)
-        u0_fv = self.NamedArray(u0_fv, u0_fv.variable_names)
 
         # get slab coordinates for boundaries
         slab_buffer_sizes = (
@@ -271,16 +264,17 @@ class EulerSolver(ODE):
         self.bc.__post_init__()
 
         # inegrator class init
-        super().__init__(u0_fv, progress_bar=progress_bar)
+        super().__init__(u0_fv, progress_bar=progress_bar, cupy=cupy)
+        self.am.copy("u", "w")
 
         # initialize timeseries data
-        self.timeseries_E = np.array([np.mean(u0_fv.E).item()])
-        self.timeseries_rho = np.array([np.mean(u0_fv.rho).item()])
+        self.timeseries_E = np.array([np.mean(u0_fv[slc("E")]).item()])
+        self.timeseries_rho = np.array([np.mean(u0_fv[slc("rho")]).item()])
 
         # fixed velocity
         self.fixed_primitive_variables = fixed_primitive_variables
         if fixed_primitive_variables is not None:
-            self.u0 = u0_fv
+            self.am.add("u0", u0_fv)
             self.w0_cell_centers_cache = {}
 
         # slope limiting
@@ -290,7 +284,11 @@ class EulerSolver(ODE):
         self.NAD = NAD
         self.NAD_mode = NAD_mode
         self.NAD_range = NAD_range
-        self.NAD_vars = NAD_vars
+        self.NAD_vars = (
+            NAD_vars
+            if isinstance(NAD_vars, tuple) or NAD_vars is None
+            else tuple(NAD_vars)
+        )
         default_PAD = {
             "rho": (0.0, np.inf),
             "P": (0.0, np.inf),
@@ -299,9 +297,9 @@ class EulerSolver(ODE):
         self.SED = SED
         self.SED_tolerance = SED_tolerance
         self.convex = convex
-        self.trouble = np.zeros_like(u0_fv[0])
-        self.NAD_violation_magnitude = np.zeros_like(u0_fv[0])
-        self.PAD_violation_magnitude = np.zeros_like(u0_fv[0])
+        self.am.add("mean trouble", np.zeros_like(u0_fv[0]))
+        self.am.copy("mean trouble", "mean NAD mag")
+        self.am.copy("mean trouble", "mean PAD mag")
         self.trouble_counter = 1
 
         # floors
@@ -321,61 +319,63 @@ class EulerSolver(ODE):
         self.f_evaluation_count = 0
 
         # preallocate flux arrays
-        self.F = self.NamedArray(np.empty((5, nx + 1, ny, nz)), conservative_names)
-        self.G = self.NamedArray(np.empty((5, nx, ny + 1, nz)), conservative_names)
-        self.H = self.NamedArray(np.empty((5, nx, ny, nz + 1)), conservative_names)
+        self.am.add("F", np.empty((5, nx + 1, ny, nz)))
+        self.am.add("G", np.empty((5, nx, ny + 1, nz)))
+        self.am.add("H", np.empty((5, nx, ny, nz + 1)))
 
     def f(self, t, u):
         self.f_evaluation_count += 1
         return self.hydrodynamics(u)
 
-    def hydrodynamics(self, u: NamedNumpyArray) -> Tuple[float, NamedNumpyArray]:
+    def hydrodynamics(self, u: np.ndarray) -> Tuple[float, np.ndarray]:
         """
         compute the Euler equation dynamics from cell-average conserved values u
         args:
-            u (NamedNumpyArray) : fv averages of conservative variables. has shape (5, nx, ny, nz)
+            u (array_like) : fv averages of conservative variables. has shape (5, nx, ny, nz)
         returns:
-            dt, dudt (float, NamedNumpyArray) : time-step size, conservative variable dynamics
+            dt, dudt (float, array_like) : time-step size, conservative variable dynamics
         """
         # high-order fluxes
         self.timer.start("hydrodynamics")
         self.timer.start("hydrodynamics/hydrofluxes")
-        dt, (self.F[...], self.G[...], self.H[...]) = self.hydrofluxes(u=u, p=self.p)
+        dt, (self.am("F")[...], self.am("G")[...], self.am("H")[...]) = (
+            self.hydrofluxes(u=u, p=self.p)
+        )
         self.timer.stop("hydrodynamics/hydrofluxes")
 
         if self.a_posteriori_slope_limiting:
             self.timer.start("revise_fluxes")
             self.revise_fluxes(
                 u=u,
-                F=self.F,
-                G=self.G,
-                H=self.H,
+                F=self.am("F"),
+                G=self.am("G"),
+                H=self.am("H"),
                 dt=dt,
                 force_trouble=self.force_trouble,
             )
             self.timer.stop("revise_fluxes")
 
         # compute conservative variable dynamics
-        dudt = self.euler_equation(F=self.F, G=self.G, H=self.H)
+        dudt = self.euler_equation(F=self.am("F"), G=self.am("G"), H=self.am("H"))
         self.timer.stop("hydrodynamics")
         return dt, dudt
 
     def hydrofluxes(
-        self, u: NamedNumpyArray, p: Tuple[int, int, int], slope_limiter: str = None
-    ) -> Tuple[float, Tuple[NamedNumpyArray, NamedNumpyArray, NamedNumpyArray]]:
+        self, u: np.ndarray, p: Tuple[int, int, int], slope_limiter: str = None
+    ) -> Tuple[float, Tuple[np.ndarray, np.ndarray, np.ndarray]]:
         """
         compute the Euler equation fluxes F, G, H with degree p polynomials. optionally apply slope limiting.
         if xdim is False, F is returned as self.F and so on for G and H
         args:
-            u (NamedArray) : cell-averages of conservative variables. has shape (5, nx, ny, nz)
+            u (array_like) : cell-averages of conservative variables. has shape (5, nx, ny, nz)
             p (Tuple[int, int, int]) : polynomial interpolation degree (px, py, pz)
             limiter (str) : None, 'minmod', 'moncen'
         returns:
             dt, (F, G, H) (tuple) : time-step size and numerical fluxes
                 dt (float) : time-step size
-                F (NamedArray) : x-direction conservative fluxes. has shape (5, nx + 1, ny, nz)
-                G (NamedArray) : y-direction conservative fluxes. has shape (5, nx, ny + 1, nz)
-                H (NamedArray) : z-direction conservative fluxes. has shape (5, nx, ny, nz + 1)
+                F (array_like) : x-direction conservative fluxes. has shape (5, nx + 1, ny, nz)
+                G (array_like) : y-direction conservative fluxes. has shape (5, nx, ny + 1, nz)
+                H (array_like) : z-direction conservative fluxes. has shape (5, nx, ny, nz + 1)
         """
         self.timer.start("hydrofluxes")
         if slope_limiter is None:
@@ -404,19 +404,19 @@ class EulerSolver(ODE):
 
         # check solution for invalid values
         if self.density_floor:
-            w_bc.rho = np.maximum(w_bc.rho, 1e-16)
-        elif np.min(w_bc.rho) < 0:
+            w_bc[slc("rho")] = np.maximum(w_bc[slc("rho")], 1e-16)
+        elif np.min(w_bc[slc("rho")]) < 0:
             raise BaseException("Negative density encountered.")
 
         if self.pressure_floor:
-            w_bc.P = np.maximum(w_bc.P, 1e-16)
-        elif np.min(w_bc.P) < 0:
+            w_bc[slc("P")] = np.maximum(w_bc.P, 1e-16)
+        elif np.min(w_bc[slc("P")]) < 0:
             raise BaseException("Negative pressure encountered.")
 
-        if np.any(np.isnan(w_bc.rho)):
+        if np.any(np.isnan(w_bc[slc("rho")])):
             raise BaseException("NaNs encountered in density.")
 
-        if np.any(np.isnan(w_bc.P)):
+        if np.any(np.isnan(w_bc[slc("P")])):
             raise BaseException("NaNs encountered in pressure.")
 
         # and time-step size
@@ -540,39 +540,39 @@ class EulerSolver(ODE):
                 transverse_reconstruction(f_face_center, axis=2, p=p[1]), axis=3, p=p[2]
             )[tuple(slice(x_excess[i] or None, -x_excess[i] or None) for i in range(4))]
         else:
-            F = self.F
+            F = self.am("F")
         if self.ydim:
             G = transverse_reconstruction(
                 transverse_reconstruction(g_face_center, axis=1, p=p[0]), axis=3, p=p[2]
             )[tuple(slice(y_excess[i] or None, -y_excess[i] or None) for i in range(4))]
         else:
-            G = self.G
+            G = self.am("G")
         if self.zdim:
             H = transverse_reconstruction(
                 transverse_reconstruction(h_face_center, axis=1, p=p[0]), axis=2, p=p[1]
             )[tuple(slice(z_excess[i] or None, -z_excess[i] or None) for i in range(4))]
         else:
-            H = self.H
+            H = self.am("H")
         self.timer.stop("hydrofluxes/transverse_reconstruction")
         self.timer.stop("hydrofluxes")
         return dt, (F, G, H)
 
     def revise_fluxes(
         self,
-        u: NamedNumpyArray,
-        F: NamedNumpyArray,
-        G: NamedNumpyArray,
-        H: NamedNumpyArray,
+        u: np.ndarray,
+        F: np.ndarray,
+        G: np.ndarray,
+        H: np.ndarray,
         dt: float,
         force_trouble: bool = False,
     ) -> None:
         """
         revise fluxes to prevent oscillations
         args:
-            u (NamedNumpyArray) : fv averages of conservative variables. has shape (5, nx, ny, nz)
-            F (NamedNumpyArray) : x-fluxes. has shape (5, nx + 1, ny, nz)
-            G (NamedNumpyArray) : y-fluxes. has shape (5, nx, ny + 1, nz)
-            H (NamedNumpyArray) : z-fluxes. has shape (5, nx, ny, nz + 1)
+            u (array_like) : fv averages of conservative variables. has shape (5, nx, ny, nz)
+            F (array_like) : x-fluxes. has shape (5, nx + 1, ny, nz)
+            G (array_like) : y-fluxes. has shape (5, nx, ny + 1, nz)
+            H (array_like) : z-fluxes. has shape (5, nx, ny, nz + 1)
             dt (float) : time-step size
             force_trouble (bool) : all cells are troubled
         returns:
@@ -603,7 +603,7 @@ class EulerSolver(ODE):
             PAD_bounds=self.PAD,
             SED=self.SED,
             SED_eps=self.SED_tolerance,
-            xp={True: "cupy", False: "numpy"}[self.cupy],
+            xp={True: "cupy", False: "numpy"}[self.am.using_cupy],
         )
         self.timer.stop("revise_fluxes/detect_troubled_cells")
         if force_trouble:
@@ -631,25 +631,23 @@ class EulerSolver(ODE):
             periodic_x=self.bc.x == ("periodic", "periodic"),
             periodic_y=self.bc.y == ("periodic", "periodic"),
             periodic_z=self.bc.z == ("periodic", "periodic"),
-            xp={True: "cupy", False: "numpy"}[self.cupy],
+            xp={True: "cupy", False: "numpy"}[self.am.using_cupy],
         )
         self.timer.stop("revise_fluxes/broadcast_to_troubled_interfaces")
 
-        F[...] = (1 - troubled_x) * F + troubled_x * Fl
-        G[...] = (1 - troubled_y) * G + troubled_y * Gl
-        H[...] = (1 - troubled_z) * H + troubled_z * Hl
+        self.am("F")[...] = (1 - troubled_x) * F + troubled_x * Fl
+        self.am("G")[...] = (1 - troubled_y) * G + troubled_y * Gl
+        self.am("H")[...] = (1 - troubled_z) * H + troubled_z * Hl
 
-    def euler_equation(
-        self, F: NamedNumpyArray, G: NamedNumpyArray, H: NamedNumpyArray
-    ) -> NamedNumpyArray:
+    def euler_equation(self, F: np.ndarray, G: np.ndarray, H: np.ndarray) -> np.ndarray:
         """
         compute the Euler equation dynamics from fv-average conserved values u
         args:
-            F (NamedNumpyArray) : x-fluxes. has shape (5, nx + 1, ny, nz)
-            G (NamedNumpyArray) : y-fluxes. has shape (5, nx, ny + 1, nz)
-            H (NamedNumpyArray) : z-fluxes. has shape (5, nx, ny, nz + 1)
+            F (array_like) : x-fluxes. has shape (5, nx + 1, ny, nz)
+            G (array_like) : y-fluxes. has shape (5, nx, ny + 1, nz)
+            H (array_like) : z-fluxes. has shape (5, nx, ny, nz + 1)
         returns:
-            dudt (NamedNumpyArray) : conservative variable dynamics
+            dudt (array_like) : conservative variable dynamics
         """
         dudt = 0.0
         if self.xdim:
@@ -662,20 +660,20 @@ class EulerSolver(ODE):
 
     def interpolate_primitives_from_conservatives(
         self,
-        u: NamedNumpyArray,
+        u: np.ndarray,
         p: Tuple[int, int, int],
         gw: Tuple[int, int, int],
         fv_average: bool = True,
-    ) -> NamedNumpyArray:
+    ) -> np.ndarray:
         """
         interpolate finite volume primitives from finite volume conservatives
         args:
-            u (NamedArray) : finite volume conservative variables
+            u (array_like) : finite volume conservative variables
             p (Tuple[int, int, int]) : interpolation polynomial degree in 3D (px, py, pz)
             gw (Tuple[int, int, int]) : number of 'ghost zones' on either side of the array u in each direction (gwx, gwy, gwz)
             fv_average (bool) : whether u is cell-averaged or centroids
         returns:
-            w (NamedArray) : primitive variables as finite volume averages or centroids
+            w (array_like) : primitive variables as finite volume averages or centroids
         """
         self.timer.start("bc")
         u_bc = self.bc.apply(u, gw=gw, t=self.t)
@@ -688,7 +686,7 @@ class EulerSolver(ODE):
             w0_cell_centers = self.w0_cell_centers_cache.get(f"{gw=}, {p=}", None)
             if w0_cell_centers is None:
                 self.timer.start("bc")
-                u0_bc = self.bc.apply(self.u0, gw=gw, t=0)
+                u0_bc = self.bc.apply(self.am("u0"), gw=gw, t=0)
                 self.timer.stop("bc")
                 self.timer.start("interpolate_cell_centers")
                 u0_cell_centers = interpolate_cell_centers(u0_bc, p=p)
@@ -719,25 +717,35 @@ class EulerSolver(ODE):
             reset (bool) : reset the trouble counter. if true, ignores all other arguments
         """
         if reset:
-            self.trouble /= self.trouble_counter
-            self.NAD_violation_magnitude /= self.trouble_counter
-            self.PAD_violation_magnitude /= self.trouble_counter
+            self.am("mean trouble")[...] = (
+                self.am("mean trouble") / self.trouble_counter
+            )
+            self.am("mean NAD mag")[...] = (
+                self.am("mean NAD mag") / self.trouble_counter
+            )
+            self.am("mean PAD mag")[...] = (
+                self.am("mean PAD mag") / self.trouble_counter
+            )
             self.trouble_counter = 0
             return
         if self.trouble_counter == 0:
-            self.trouble[...] = trouble
-            self.NAD_violation_magnitude[...] = NAD_violation_magnitude
-            self.PAD_violation_magnitude[...] = PAD_violation_magnitude
+            self.am("mean trouble")[...] = trouble
+            self.am("mean NAD mag")[...] = NAD_violation_magnitude
+            self.am("mean PAD mag")[...] = PAD_violation_magnitude
         else:
-            self.trouble += trouble
-            self.NAD_violation_magnitude += NAD_violation_magnitude
-            self.PAD_violation_magnitude += PAD_violation_magnitude
+            self.am("mean trouble")[...] = self.am("mean trouble") + trouble
+            self.am("mean NAD mag")[...] = self.am("mean NAD mag") + trouble
+            self.am("mean PAD mag")[...] = self.am("mean PAD mag") + trouble
         self.trouble_counter += 1
 
     def step_helper_function(self):
         # log timeseries data
-        self.timeseries_E = np.append(self.timeseries_E, np.mean(self.u.E).item())
-        self.timeseries_rho = np.append(self.timeseries_rho, np.mean(self.u.rho).item())
+        self.timeseries_E = np.append(
+            self.timeseries_E, np.mean(self.am("u")[slc("E")]).item()
+        )
+        self.timeseries_rho = np.append(
+            self.timeseries_rho, np.mean(self.am("u")[slc("rho")]).item()
+        )
         # log
         if self.a_posteriori_slope_limiting:
             self.log_troubles(reset=True)
@@ -748,8 +756,8 @@ class EulerSolver(ODE):
         """
         self.timer.start("snapshot")
         # fv conservatives to fv primitives
-        w = self.interpolate_primitives_from_conservatives(
-            u=self.u,
+        self.am("w")[...] = self.interpolate_primitives_from_conservatives(
+            u=self.am("u"),
             p=self.p,
             gw=(
                 int(np.ceil(self.p[0] / 2)) * int(self.snapshots_as_fv_averages + 1),
@@ -759,40 +767,11 @@ class EulerSolver(ODE):
             fv_average=self.snapshots_as_fv_averages,
         )
 
-        # append conservative variables if dumpall
-        if self.dumpall:
-            if self.snapshots_as_fv_averages:
-                u = self.u
-            else:
-                self.timer.start("bc")
-                u_bc = self.bc.apply(
-                    self.u,
-                    gw=(
-                        int(np.ceil(self.p[0] / 2)),
-                        int(np.ceil(self.p[1] / 2)),
-                        int(np.ceil(self.p[2] / 2)),
-                    ),
-                    t=self.t,
-                )
-                self.timer.stop("bc")
-                self.timer.start("interpolate_cell_centers")
-                u = interpolate_cell_centers(u_bc, p=self.p)
-                self.timer.stop("interpolate_cell_centers")
-            w = w.merge(u)
-
         # log troubles
         if self.a_posteriori_slope_limiting:
-            trouble = self.trouble
-            NAD_mag = self.NAD_violation_magnitude
-            PAD_mag = self.PAD_violation_magnitude
-
-        # convert cupy arrays to numpy arrays
-        if self.cupy and CUPY_AVAILABLE:
-            w = w.asnamednumpy()
-            if self.a_posteriori_slope_limiting:
-                trouble = cp.asnumpy(self.trouble)
-                NAD_mag = cp.asnumpy(self.NAD_violation_magnitude)
-                PAD_mag = cp.asnumpy(self.PAD_violation_magnitude)
+            trouble = self.am.get_numpy("mean trouble")
+            NAD_mag = self.am.get_numpy("mean NAD mag")
+            PAD_mag = self.am.get_numpy("mean PAD mag")
 
         # append dictionary to list of snapshots
         log = {
@@ -800,7 +779,7 @@ class EulerSolver(ODE):
             "y": self.y,
             "z": self.z,
             "t": self.t,
-            "w": w,
+            "w": self.am.get_numpy("w"),
         }
         if self.a_posteriori_slope_limiting:
             log["trouble"] = trouble
@@ -857,14 +836,11 @@ class EulerSolver(ODE):
                 continue
             # skip functions, arrays, etc
             if (
-                callable(v)
+                (callable(v) and k != "am")
                 or isinstance(v, np.ndarray)
                 or isinstance(v, cp_ndarray)
-                or isinstance(v, NamedNumpyArray)
-                or isinstance(v, NamedCupyArray)
                 or k
                 in [
-                    "NamedArray",
                     "progress_bar",
                     "timestamps",
                     "snapshots",
@@ -872,8 +848,8 @@ class EulerSolver(ODE):
                 ]
             ):
                 continue
-            # save boundary condition dict
-            if k in ["bc", "timer"]:
+            # save dicts of array manager, boundary conditions, and timer
+            if k in ["am", "bc", "timer"]:
                 attrs_to_save[k] = v.to_dict()
                 continue
             # rewrite np.inf as a string
@@ -907,3 +883,26 @@ class EulerSolver(ODE):
                 self.ssprk3(*args, **kwargs)
             case _:
                 self.rk4(*args, **kwargs)
+
+    def plot_fields(self, **kwargs):
+        if self.ndim == 1:
+            fig, axs = plt.subplots(2, 3, sharex=True, sharey=True)
+            self.plot_1d_slice(axs[0, 0], param="rho", **kwargs)
+            self.plot_1d_slice(axs[0, 1], param="P", **kwargs)
+            self.plot_1d_slice(axs[0, 2], param="v", **kwargs)
+            self.plot_1d_slice(axs[1, 0], param="vx", **kwargs)
+            self.plot_1d_slice(axs[1, 1], param="vy", **kwargs)
+            self.plot_1d_slice(axs[1, 2], param="vz", **kwargs)
+            return fig, axs
+        if self.ndim == 2:
+            fig, axs = plt.subplots(2, 3, sharex=True, sharey=True)
+            self.plot_2d_slice(axs[0, 0], param="rho", **kwargs)
+            self.plot_2d_slice(axs[0, 1], param="P", **kwargs)
+            self.plot_2d_slice(axs[0, 2], param="v", **kwargs)
+            self.plot_2d_slice(axs[1, 0], param="vx", **kwargs)
+            self.plot_2d_slice(axs[1, 1], param="vy", **kwargs)
+            self.plot_2d_slice(axs[1, 2], param="vz", **kwargs)
+            return fig, axs
+        raise NotImplementedError(
+            "Plotting is only implemented for 1D and 2D simulations."
+        )

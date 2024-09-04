@@ -1,25 +1,25 @@
-import numpy as np
+from fvhoe.array_manager import get_array_slice as slc
 from fvhoe.hydro import compute_conservatives, compute_fluxes, compute_sound_speed
-from fvhoe.named_array import NamedNumpyArray
+import numpy as np
 
 
 def advection_upwind(
-    wl: NamedNumpyArray,
-    wr: NamedNumpyArray,
+    wl: np.ndarray,
+    wr: np.ndarray,
     gamma: float,
     dim: str,
     rho_P_sound_speed_floor: bool = False,
-) -> NamedNumpyArray:
+) -> np.ndarray:
     """
     upwinding numerical fluxes, pressure is assumed to be 0
     args:
-        wl (NamedArray) : primitive variables to the left of interface
-        wr (NamedArray) : primitive variables to the right of interface
+        wl (array_like) : primitive variables to the left of interface
+        wr (array_like) : primitive variables to the right of interface
         gamma (float) : specific heat ratio
         dim (str) : "x", "y", "z"
         rho_P_sound_speed_floor (bool) : whether to apply a floor to density and pressure when computing sound speed
     returns:
-        out (NamedArray) : upwinding fluxes for conservative variables
+        out (array_like) : upwinding fluxes for conservative variables
     """
     # compute conservative variables
     ul = compute_conservatives(wl, gamma)
@@ -30,33 +30,32 @@ def advection_upwind(
     Fr = compute_fluxes(u=ur, w=wr, gamma=gamma, dim=dim, include_pressure=False)
 
     # assume velocity is continuous across interface
-    v = getattr(wl, "v" + dim)[np.newaxis]  # velocity in dim-direction
+    v = wl[slc("v" + dim)][np.newaxis]  # velocity in dim-direction
 
     # upwind
     out = np.where(v > 0, Fl, np.where(v < 0, Fr, 0))
-    out = ul.__class__(out, names=ul.variable_names)
     return out
 
 
 def llf(
-    wl: NamedNumpyArray,
-    wr: NamedNumpyArray,
+    wl: np.ndarray,
+    wr: np.ndarray,
     gamma: float,
     dim: str,
     rho_P_sound_speed_floor: bool = False,
-) -> NamedNumpyArray:
+) -> np.ndarray:
     """
     llf numerical fluxes
     Riemann Solvers and Numerical Methods for Fluid Dynamics by Toro
     Page 331
     args:
-        wl (NamedArray) : primitive variables to the left of interface
+        wl (array_like) : primitive variables to the left of interface
         wr (array_like) : primitive variables to the right of interface
         gamma (float) : specific heat ratio
         dim (str) : "x", "y", "z"
         rho_P_sound_speed_floor (bool) : whether to apply a floor to density and pressure when computing sound speed
     returns:
-        out (NamedArray) : llf fluxes for conservative variables
+        out (array_like) : llf fluxes for conservative variables
     """
 
     # compute conservative variables
@@ -68,32 +67,31 @@ def llf(
     Fr = compute_fluxes(u=ur, w=wr, gamma=gamma, dim=dim)
 
     # get sound speeds
-    sl = np.abs(getattr(wl, "v" + dim)) + compute_sound_speed(
+    sl = np.abs(wl[slc("v" + dim)]) + compute_sound_speed(
         wl, gamma, rho_P_floor=rho_P_sound_speed_floor
     )
-    sr = np.abs(getattr(wr, "v" + dim)) + compute_sound_speed(
+    sr = np.abs(wr[slc("v" + dim)]) + compute_sound_speed(
         wr, gamma, rho_P_floor=rho_P_sound_speed_floor
     )
     smax = np.maximum(sl, sr)
 
     # llf
     out = 0.5 * (Fl + Fr) - 0.5 * smax * (ur - ul)
-    out = ul.__class__(out, names=ul.variable_names)
     return out
 
 
 def hllc(
-    wl: NamedNumpyArray,
-    wr: NamedNumpyArray,
+    wl: np.ndarray,
+    wr: np.ndarray,
     gamma: float,
     dim: str,
     rho_P_sound_speed_floor: bool = False,
-) -> NamedNumpyArray:
+) -> np.ndarray:
     """
     hllc numerical fluxes (David variation)
     args:
-        wl (NamedArray) : primitive variables to the left of interface
-        wr (NamedArray) : primitive variables to the right of interface
+        wl (array_like) : primitive variables to the left of interface
+        wr (array_like) : primitive variables to the right of interface
         gamma (float) : specific heat ratio
         dir (str) : "x", "y", "z"
         rho_P_sound_speed_floor (bool) : whether to apply a floor to density and pressure when computing sound speed
@@ -110,62 +108,69 @@ def hllc(
     cr = compute_sound_speed(wr, gamma, rho_P_floor=rho_P_sound_speed_floor)
     cmax = np.maximum(cl, cr)
 
-    # single out relevant velocities
-    vl = getattr(wl, "v" + dim)
-    vr = getattr(wr, "v" + dim)
+    # single out relevant quantities
+    vl, vr = wl[slc("v" + dim)], wr[slc("v" + dim)]
+    rhol, rhor = wl[slc("rho")], wr[slc("rho")]
+    Pl, Pr = wl[slc("P")], wr[slc("P")]
+    El, Er = ul[slc("E")], ur[slc("E")]
 
     # Compute HLL wave speed
     Sl = np.minimum(vl, vr) - cmax
     Sr = np.maximum(vl, vr) + cmax
 
     # Compute lagrangian sound speed
-    rc_L = wl.rho * (vl - Sl)
-    rc_R = wr.rho * (Sr - vr)
+    rc_L = rhol * (vl - Sl)
+    rc_R = rhor * (Sr - vr)
 
     # Compute acoustic star state
-    v_star = (rc_L * vl + rc_R * vr + wl.P - wr.P) / (rc_L + rc_R)
-    P_star = (rc_L * wr.P + rc_R * wl.P + rc_L * rc_R * (vl - vr)) / (rc_L + rc_R)
+    v_star = (rc_L * vl + rc_R * vr + Pl - Pr) / (rc_L + rc_R)
+    P_star = (rc_L * Pr + rc_R * Pl + rc_L * rc_R * (vl - vr)) / (rc_L + rc_R)
 
     # Left star region variables
-    r_starL = wl.rho * (Sl - vl) / (Sl - v_star)
-    E_starL = ((Sl - vl) * ul.E - wl.P * vl + P_star * v_star) / (Sl - v_star)
+    r_starL = rhol * (Sl - vl) / (Sl - v_star)
+    E_starL = ((Sl - vl) * El - Pl * vl + P_star * v_star) / (Sl - v_star)
 
     # Right star region variables
-    r_starR = wr.rho * (Sr - vr) / (Sr - v_star)
-    E_starR = ((Sr - vr) * ur.E - wr.P * vr + P_star * v_star) / (Sr - v_star)
+    r_starR = rhor * (Sr - vr) / (Sr - v_star)
+    E_starR = ((Sr - vr) * Er - Pr * vr + P_star * v_star) / (Sr - v_star)
 
     # sample godunov state
     r_gdv = np.where(
-        Sl > 0, wl.rho, np.where(v_star > 0, r_starL, np.where(Sr > 0, r_starR, wr.rho))
+        Sl > 0, rhol, np.where(v_star > 0, r_starL, np.where(Sr > 0, r_starR, rhor))
     )
     v_gdv = np.where(
         Sl > 0, vl, np.where(v_star > 0, v_star, np.where(Sr > 0, v_star, vr))
     )
     P_gdv = np.where(
-        Sl > 0, wl.P, np.where(v_star > 0, P_star, np.where(Sr > 0, P_star, wr.P))
+        Sl > 0, Pl, np.where(v_star > 0, P_star, np.where(Sr > 0, P_star, Pr))
     )
     E_gdv = np.where(
-        Sl > 0, ul.E, np.where(v_star > 0, E_starL, np.where(Sr > 0, E_starR, ur.E))
+        Sl > 0, El, np.where(v_star > 0, E_starL, np.where(Sr > 0, E_starR, Er))
     )
 
     # HLLC flux
-    out = ul.copy()
-    out.rho = r_gdv * v_gdv
-    out.mx = (
+    out = np.empty_like(ul)
+    out[slc("rho")] = r_gdv * v_gdv
+    out[slc("mx")] = (
         r_gdv * v_gdv * v_gdv + P_gdv
         if dim == "x"
-        else r_gdv * v_gdv * np.where(v_gdv > 0, wl.vx, np.where(v_gdv < 0, wr.vx, 0))
+        else r_gdv
+        * v_gdv
+        * np.where(v_gdv > 0, wl[slc("vx")], np.where(v_gdv < 0, wr[slc("vx")], 0))
     )
-    out.my = (
+    out[slc("my")] = (
         r_gdv * v_gdv * v_gdv + P_gdv
         if dim == "y"
-        else r_gdv * v_gdv * np.where(v_gdv > 0, wl.vy, np.where(v_gdv < 0, wr.vy, 0))
+        else r_gdv
+        * v_gdv
+        * np.where(v_gdv > 0, wl[slc("vy")], np.where(v_gdv < 0, wr[slc("vx")], 0))
     )
-    out.mz = (
+    out[slc("mz")] = (
         r_gdv * v_gdv * v_gdv + P_gdv
         if dim == "z"
-        else r_gdv * v_gdv * np.where(v_gdv > 0, wl.vz, np.where(v_gdv < 0, wr.vz, 0))
+        else r_gdv
+        * v_gdv
+        * np.where(v_gdv > 0, wl[slc("vz")], np.where(v_gdv < 0, wr[slc("vz")], 0))
     )
-    out.E = v_gdv * (E_gdv + P_gdv)
-
+    out[slc("E")] = v_gdv * (E_gdv + P_gdv)
     return out

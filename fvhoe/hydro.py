@@ -1,65 +1,89 @@
-from fvhoe.named_array import NamedNumpyArray
+from fvhoe.array_manager import get_array_slice as slc
 import numpy as np
 
 
-def compute_primitives(u: NamedNumpyArray, gamma: float) -> NamedNumpyArray:
+def compute_primitives(u: np.ndarray, gamma: float) -> np.ndarray:
     """
     args:
-        u (NamedArray) : has variables names ["rho", "mx", "my", "mz", "E"]
+        u (array_like) : has variables names ["rho", "mx", "my", "mz", "E"]
         gamma (float) : specific heat ratio
     returns:
-        w (NamedArray) : has variables names ["rho", "vx", "vy", "vz", "P"]
+        w (array_like) : has variables names ["rho", "vx", "vy", "vz", "P"]
     """
-    w = u.rename_variables({"mx": "vx", "my": "vy", "mz": "vz", "E": "P"})
-    w.rho = u.rho
-    w.vx = u.mx / u.rho
-    w.vy = u.my / u.rho
-    w.vz = u.mz / u.rho
-    w.P = (gamma - 1) * (u.E - 0.5 * (u.mx * w.vx + u.my * w.vy + u.mz * w.vz))
+    w = np.empty_like(u)
+
+    # get slices
+    rho = u[slc("rho")]
+    mx = u[slc("mx")]
+    my = u[slc("my")]
+    mz = u[slc("mz")]
+    E = u[slc("E")]
+    vx = w[slc("vx")]
+    vy = w[slc("vy")]
+    vz = w[slc("vz")]
+
+    # assign values
+    w[slc("rho")] = rho
+    vx[...] = mx / rho
+    vy[...] = my / rho
+    vz[...] = mz / rho
+    w[slc("P")] = (gamma - 1) * (E - 0.5 * (mx * vx + my * vy + mz * vz))
     return w
 
 
-def compute_conservatives(w: NamedNumpyArray, gamma: float) -> NamedNumpyArray:
+def compute_conservatives(w: np.ndarray, gamma: float) -> np.ndarray:
     """
     args:
-        w (NamedArray) : has variables names ["rho", "vx", "vy", "vz", "P"]
+        w (array_like) : has variables names ["rho", "vx", "vy", "vz", "P"]
         gamma (float) : specific heat ratio
     returns:
-        u (NamedArray) : has variables names ["rho", "mx", "my", "mz", "E"]
+        u (array_like) : has variables names ["rho", "mx", "my", "mz", "E"]
     """
-    u = w.rename_variables({"vx": "mx", "vy": "my", "vz": "mz", "P": "E"})
-    u.rho = w.rho
-    u.mx = w.rho * w.vx
-    u.my = w.rho * w.vy
-    u.mz = w.rho * w.vz
-    u.E = w.P / (gamma - 1) + 0.5 * (u.mx * w.vx + u.my * w.vy + u.mz * w.vz)
+    u = np.empty_like(w)
+
+    # get slices
+    rho = w[slc("rho")]
+    vx = w[slc("vx")]
+    vy = w[slc("vy")]
+    vz = w[slc("vz")]
+    P = w[slc("P")]
+    mx = u[slc("mx")]
+    my = u[slc("my")]
+    mz = u[slc("mz")]
+
+    # assign values
+    u[slc("rho")] = rho
+    mx[...] = rho * vx
+    my[...] = rho * vy
+    mz[...] = rho * vz
+    u[slc("E")] = P / (gamma - 1) + 0.5 * (mx * vx + my * vy + mz * vz)
     return u
 
 
 def compute_sound_speed(
-    w: NamedNumpyArray, gamma: float, rho_P_floor: bool = False
+    w: np.ndarray, gamma: float, rho_P_floor: bool = False
 ) -> np.ndarray:
     """
     args:
-        w (NamedArray) : has variables names ["rho", "P"]
+        w (array_like) : has variables names ["rho", "P"]
         gamma (float) : specific heat ratio
         rho_P_floor (bool) : whether to floor rho and P to 1e-16
     returns:
         out (array_like) : sound speeds
     """
-    P = np.maximum(w.P, 1e-16) if rho_P_floor else w.P
-    rho = np.maximum(w.rho, 1e-16) if rho_P_floor else w.rho
+    P = np.maximum(w[slc("P")], 1e-16) if rho_P_floor else w[slc("P")]
+    rho = np.maximum(w[slc("rho")], 1e-16) if rho_P_floor else w[slc("rho")]
     out = np.sqrt(gamma * P / rho)
     return out
 
 
 def compute_fluxes(
-    u: NamedNumpyArray,
-    w: NamedNumpyArray,
+    u: np.ndarray,
+    w: np.ndarray,
     gamma: float,
     dim: str,
     include_pressure: bool = True,
-) -> NamedNumpyArray:
+) -> np.ndarray:
     """
     Riemann Solvers and Numerical Methods for Fluid Dynamics by Toro
     Page 3
@@ -72,18 +96,20 @@ def compute_fluxes(
     returns:
         out (array_like) : fluxes in specified direction, has variables names ["rho", "mx", "my", "mz", "E"]
     """
-    out = u.copy()
-    v = getattr(w, "v" + dim)  # velocity in dim-direction
-    out.rho = v * w.rho
-    out.mx = v * u.mx
-    out.my = v * u.my
-    out.mz = v * u.mz
-    out.E = v * u.E
+    out = np.empty_like(u)
+    v = w[slc("v" + dim)]  # velocity in dim-direction
+
+    # assign values
+    out[slc("rho")] = v * w[slc("rho")]
+    out[slc("mx")] = v * u[slc("mx")]
+    out[slc("my")] = v * u[slc("my")]
+    out[slc("mz")] = v * u[slc("mz")]
+    out[slc("E")] = v * u[slc("E")]
     if include_pressure:
-        mflux = getattr(out, "m" + dim)
-        setattr(out, "m" + dim, mflux + w.P)
-        Eflux = getattr(out, "E")
-        setattr(out, "E", Eflux + v * w.P)
+        mflux = out[slc("m" + dim)]
+        Eflux = out[slc("E")]
+        mflux[...] = mflux + w[slc("P")]  # pressure term
+        Eflux[...] = Eflux + v * w[slc("P")]  # pressure term
     return out
 
 
@@ -111,7 +137,7 @@ def advection_dt(
 
 
 def hydro_dt(
-    w: NamedNumpyArray,
+    w: np.ndarray,
     h: float,
     ndim: float,
     CFL: float,
@@ -121,7 +147,7 @@ def hydro_dt(
     """
     compute suitable time-step size for Euler equations
     args:
-        w (NamedArray) : primitive variables
+        w (array_like) : primitive variables
         h (float) : mesh spacing
         ndim (int) : number of dimensions
         CFL (float) : Courant-Friedrichs-Lewy condition
@@ -131,9 +157,9 @@ def hydro_dt(
         out (float) : time-step size
     """
     c = compute_sound_speed(w, gamma, rho_P_floor=rho_P_sound_speed_floor)
-    vxa = np.abs(w.vx)
-    vya = np.abs(w.vy)
-    vza = np.abs(w.vz)
+    vxa = np.abs(w[slc("vx")])
+    vya = np.abs(w[slc("vy")])
+    vza = np.abs(w[slc("vz")])
     out = CFL * h / np.max(vxa + vya + vza + ndim * c).item()
     if out < 0:
         raise BaseException("Negative dt encountered.")

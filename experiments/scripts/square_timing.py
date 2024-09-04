@@ -1,4 +1,3 @@
-from functools import partial
 from fvhoe.initial_conditions import square
 from fvhoe.solver import EulerSolver
 import matplotlib.pyplot as plt
@@ -7,7 +6,7 @@ N = 512
 p = 3
 
 fv = EulerSolver(
-    w0=partial(square, dims="xy", vx=1, vy=1),
+    w0=square(dims="xy", vx=1, vy=1),
     nx=N,
     ny=N,
     px=p,

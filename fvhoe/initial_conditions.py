@@ -1,3 +1,5 @@
+from functools import wraps
+from fvhoe.array_manager import get_array_slice as slc
 from fvhoe.config import conservative_names, primitive_names
 from fvhoe.named_array import NamedNumpyArray
 import numpy as np
@@ -14,7 +16,7 @@ def isnumeric(x):
 
 def empty_NamedArray(
     shape: Tuple[int, int, int] = None, vars: str = "primitive"
-) -> NamedNumpyArray:
+) -> np.ndarray:
     """
     assign primitive variables to a 3D mesh from uniform values, arrays, or functions of x, y, z
     args:
@@ -38,7 +40,7 @@ def sinus(
     vx: float = 1,
     vy: float = 0,
     vz: float = 0,
-) -> NamedNumpyArray:
+) -> np.ndarray:
     """
     smooth density sine wave initial condition for advection.
     density is a scale of a sine wave in x, y, and/or z.
@@ -70,43 +72,48 @@ def sinus(
 
 
 def square(
-    x: np.ndarray,
-    y: np.ndarray = None,
-    z: np.ndarray = None,
     dims: str = "x",
     rho_min_max: Tuple[float, float] = (1, 2),
     P: float = 1,
     vx: float = 1,
     vy: float = 0,
     vz: float = 0,
-) -> NamedNumpyArray:
-    """
-    discontinuous density square initial condition for advection
-    density is a cube in x, y, and/or z bounded by [0.25, 0.75].
-    args:
-        x (array_like) : 3D mesh of x-points, shape (nx, ny, nz)
-        y (array_like) : 3D mesh of y-points, shape (nx, ny, nz)
-        z (array_like) : 3D mesh of z-points, shape (nx, ny, nz)
-        dims (str) : contains "x", "y", and/or "z"
-        rho_min_max (Tuple[float, float]) : min density (outside cube), max density (inside cube)
-        P (float) : uniform pressure
-        vx (float) : uniform x-velocity
-        vy (float) : uniform y-velocity
-        vz (float) : uniform z-velocity
-    returns:
-        out (NamedNumpyArray) : has variable names ["rho", "vx", "vy", "vz", "P"]
-    """
-    inside_square = np.ones_like(x, dtype=bool)
-    for dim, r in zip("xyz", [x, y, z]):
-        inside_square &= np.logical_and(r > 0.25, r < 0.75) if dim in dims else True
-    rho = np.where(inside_square, rho_min_max[1], rho_min_max[0])
-    out = empty_NamedArray(inside_square.shape)
-    out.rho = rho
-    out.P = P
-    out.vx = vx
-    out.vy = vy
-    out.vz = vz
-    return out
+) -> callable:
+    @wraps(square)
+    def f(
+        x: np.ndarray,
+        y: np.ndarray = None,
+        z: np.ndarray = None,
+    ) -> np.ndarray:
+        """
+        discontinuous density square initial condition for advection
+        density is a cube in x, y, and/or z bounded by [0.25, 0.75].
+        args:
+            x (array_like) : 3D mesh of x-points, shape (nx, ny, nz)
+            y (array_like) : 3D mesh of y-points, shape (nx, ny, nz)
+            z (array_like) : 3D mesh of z-points, shape (nx, ny, nz)
+            dims (str) : contains "x", "y", and/or "z"
+            rho_min_max (Tuple[float, float]) : min density (outside cube), max density (inside cube)
+            P (float) : uniform pressure
+            vx (float) : uniform x-velocity
+            vy (float) : uniform y-velocity
+            vz (float) : uniform z-velocity
+        returns:
+            out (NamedNumpyArray) : has variable names ["rho", "vx", "vy", "vz", "P"]
+        """
+        inside_square = np.ones_like(x, dtype=bool)
+        for dim, r in zip("xyz", [x, y, z]):
+            inside_square &= np.logical_and(r > 0.25, r < 0.75) if dim in dims else True
+        rho = np.where(inside_square, rho_min_max[1], rho_min_max[0])
+        out = np.asarray([np.empty_like(x)] * 5)
+        out[slc("rho")] = rho
+        out[slc("P")] = P
+        out[slc("vx")] = vx
+        out[slc("vy")] = vy
+        out[slc("vz")] = vz
+        return out
+
+    return f
 
 
 def slotted_disk(
@@ -115,7 +122,7 @@ def slotted_disk(
     z: np.ndarray = None,
     rho_min_max: Tuple[float, float] = (1, 2),
     P: float = 1,
-) -> NamedNumpyArray:
+) -> np.ndarray:
     """
     slotted disk revolving around (0.5, 0.5) in the x-y plane
     args:
@@ -149,7 +156,7 @@ def shock_1d(
     rho_left_right: Tuple[float, float] = (1, 0.125),
     P_left_right: Tuple[float, float] = (1, 0.1),
     v_left_right: Tuple[float, float] = (0, 0),
-) -> NamedNumpyArray:
+) -> np.ndarray:
     """
     normal shock tube initial condition
     args:
@@ -186,7 +193,7 @@ def double_shock_1d(
     rhos: Tuple[float, float, float] = (1, 1, 1),
     vs: Tuple[float, float, float] = (0, 0, 0),
     Ps: Tuple[float, float, float] = (10**3, 10**-2, 10**2),
-) -> NamedNumpyArray:
+) -> np.ndarray:
     """
     double shock tube initial condition
     args:
@@ -219,7 +226,7 @@ def double_shock_1d(
 
 def shu_osher_1d(
     x: np.ndarray, y: np.ndarray = None, z: np.ndarray = None, dim: str = "x"
-) -> NamedNumpyArray:
+) -> np.ndarray:
     """
     Shu Osher initial condition for advection on domain [0, 10]
     args:
@@ -247,7 +254,7 @@ def kelvin_helmholtz_2d(
     z: np.ndarray = None,
     sigma: float = 0.05 * np.sqrt(2),
     w0: float = 0.1,
-) -> NamedNumpyArray:
+) -> np.ndarray:
     """
     2D Kelvin-Helmholtz instability
     args:
@@ -323,7 +330,7 @@ def shock_tube(
     y_cube: Tuple[float, float] = None,
     z_cube: Tuple[float, float] = None,
     conservative: bool = False,
-) -> NamedNumpyArray:
+) -> np.ndarray:
     """
     multidimensional shock tube initial condition. can be a sphere or a rectangular prism in 3D
     args:
@@ -402,7 +409,7 @@ def sedov(
     rho0: float = 1.0,
     E0: float = 1e-5,
     E1: float = 1.0,
-) -> NamedNumpyArray:
+) -> np.ndarray:
     """
     Sedov blast wave initial condition in conservative variable form
     run with conservative_ic=True and fv_ic=True
@@ -450,7 +457,7 @@ def sedov(
     return out
 
 
-def athena_blast(x: np.ndarray, y: np.ndarray, z: np.ndarray) -> NamedNumpyArray:
+def athena_blast(x: np.ndarray, y: np.ndarray, z: np.ndarray) -> np.ndarray:
     """
     Athena test blast https://www.astro.princeton.edu/~jstone/Athena/tests/blast/blast.html
     x in [-0.5, 0.5]

@@ -1,6 +1,5 @@
-from fvhoe.config import conservative_names, primitive_names
+from fvhoe.array_manager import get_array_slice as slc
 from fvhoe.hydro import compute_conservatives, compute_primitives
-from fvhoe.named_array import NamedNumpyArray
 import numpy as np
 import pytest
 from tests.test_utils import l1err
@@ -16,10 +15,9 @@ def test_conservative_to_primitive_invertibility(
         test_number (int) : arbitrary test label
         gamma (float) : specific heat ratio
     """
-    data = 2 * np.random.rand(5, 64, 64, 64) + 1
-    u1 = NamedNumpyArray(data, conservative_names)
+    u1 = 2 * np.random.rand(5, 64, 64, 64) + 1
     u2 = compute_conservatives(compute_primitives(u1, gamma=gamma), gamma=gamma)
-    assert l1err(u1.E, u2.E) < 1e-15
+    assert l1err(u1[slc("E")], u2[slc("E")]) < 1e-15
 
 
 @pytest.mark.parametrize("test_number", range(5))
@@ -32,7 +30,6 @@ def test_primitive_to_conservative_invertibility(
         test_number (int) : arbitrary test label
         gamma (float) : specific heat ratio
     """
-    data = 2 * np.random.rand(5, 64, 64, 64) + 1
-    w1 = NamedNumpyArray(data, primitive_names)
+    w1 = 2 * np.random.rand(5, 64, 64, 64) + 1
     w2 = compute_primitives(compute_conservatives(w1, gamma=gamma), gamma=gamma)
-    assert l1err(w1.P, w2.P) < 1e-15
+    assert l1err(w1[slc("P")], w2[slc("P")]) < 1e-15

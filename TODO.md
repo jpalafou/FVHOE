@@ -1,3 +1,5 @@
+array_manager tests
+
 PAD only?
 20% local, relative, no blending
 

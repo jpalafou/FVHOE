@@ -1,3 +1,4 @@
+from fvhoe.array_manager import get_array_slice as slc
 from matplotlib import cm
 from matplotlib.colors import LogNorm
 import numpy as np
@@ -95,7 +96,9 @@ def get_velocity_magnitude(w) -> np.ndarray:
     returns:
         out (array_like) : velocity magnitude in 3D
     """
-    out = np.sqrt(np.square(w.vx) + np.square(w.vy) + np.square(w.vz))
+    out = np.sqrt(
+        np.square(w[slc("vx")]) + np.square(w[slc("vy")]) + np.square(w[slc("vz")])
+    )
     return out
 
 
@@ -135,7 +138,7 @@ def plot_1d_slice(
     y: float = None,
     z: float = None,
     tol: float = 0,
-    verbose: bool = True,
+    verbose: bool = False,
     **kwargs,
 ) -> None:
     """
@@ -173,7 +176,7 @@ def plot_1d_slice(
     elif param == "v":
         source_array = get_velocity_magnitude(snapshots[n]["w"])
     else:
-        source_array = getattr(snapshots[n]["w"], param)
+        source_array = snapshots[n]["w"][slc(param)]
     y_for_plotting = source_array[slices]
     # print summary
     if verbose:
@@ -195,7 +198,7 @@ def plot_2d_slice(
     tol: float = 0,
     cmap: str = "GnBu_r",
     trouble_color: str = "red",
-    verbose: bool = True,
+    verbose: bool = False,
     log: bool = False,
     log_vmin: float = None,
     log_vmax: float = None,
@@ -266,7 +269,7 @@ def plot_2d_slice(
     elif param == "v":
         source_array = get_velocity_magnitude(snapshots[n]["w"])
     else:
-        source_array = getattr(snapshots[n]["w"], param)
+        source_array = snapshots[n]["w"][slc(param)]
     z_for_plotting = source_array[slices]
     # rotate
     X, Y = np.meshgrid(x_for_plotting, y_for_plotting, indexing="ij")
@@ -333,12 +336,9 @@ def sample_circular_average(
         np.square(X - center[0]) + np.square(Y - center[1]) + np.square(Z - center[2])
     )
     if param == "v":
-        vx = snapshots[n]["w"].vx
-        vy = snapshots[n]["w"].vy
-        vz = snapshots[n]["w"].vz
-        param_data = np.sqrt(np.square(vx) + np.square(vy) + np.square(vz))
+        param_data = get_velocity_magnitude(snapshots[n]["w"])
     else:
-        param_data = getattr(snapshots[n]["w"], param)
+        param_data = snapshots[n]["w"][slc(param)]
     r_average = np.empty_like(radii[:-1])
     bin_average = np.empty_like(radii[:-1])
     for i, (little_r, big_r) in enumerate(zip(radii[:-1], radii[1:])):

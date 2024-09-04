@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+from fvhoe.array_manager import ArrayManager
 import numpy as np
 import os
 import subprocess
@@ -26,16 +27,23 @@ class ODE(ABC):
     u' = f(t, u)
     """
 
-    def __init__(self, u0: Any, progress_bar: bool = True):
+    def __init__(self, u0: Any, progress_bar: bool = True, cupy: bool = False):
         """
         args:
             u0 (Any) : initial state
             progress_bar (bool) : whether to print out a progress bar
+            cupy (bool) : whether to use cupy arrays
         """
-        self.u = u0
-        self.t = 0
-        self.timestamps = [0]
+        # initial conditions
+        self.t = 0.0
+        self.timestamps = [0.0]
         self.step_count = 0
+
+        # array manager
+        self.am = ArrayManager()
+        if cupy:
+            self.am.enable_cupy()
+        self.am.add("u", u0)
 
         # snapshots
         self.snapshots = []
@@ -167,7 +175,9 @@ class ODE(ABC):
         """
         integrate helper function
         """
-        dt, self.u = self.stepper(self.t, self.u, target_time=target_time)
+        dt, self.am("u")[...] = self.stepper(
+            self.t, self.am("u"), target_time=target_time
+        )
         self.t += dt
         self.timestamps.append(self.t)
         self.step_count += 1

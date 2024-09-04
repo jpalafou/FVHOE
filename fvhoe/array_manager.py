@@ -1,6 +1,6 @@
 from functools import lru_cache
 import numpy as np
-from typing import Tuple
+from typing import Tuple, Union
 
 try:
     import cupy as cp
@@ -9,19 +9,29 @@ try:
 except Exception:
     CUPY_AVAILABLE = False
 
-conservative_map = {"rho": 0, "E": 1, "mx": 2, "my": 3, "mz": 4}
-primitive_map = {"rho": 0, "P": 1, "vx": 2, "vy": 3, "vz": 4}
+variable_idx_map = {
+    "rho": 0,
+    "P": 1,
+    "vx": 2,
+    "vy": 3,
+    "vz": 4,
+    "E": 1,
+    "mx": 2,
+    "my": 3,
+    "mz": 4,
+}
 
 
 @lru_cache(maxsize=100)
 def get_array_slice(
-    var: str = None,
+    var: Union[str, Tuple[str]] = None,
     x: Tuple[int, int] = None,
     y: Tuple[int, int] = None,
     z: Tuple[int, int] = None,
-    var_idx: int = None,
-    conservative: bool = False,
     ndim: int = 4,
+    axis: int = None,
+    cut: Tuple[int, int] = None,
+    step: int = 1,
 ) -> tuple:
     """
     Get the slice for the given variable and coordinates for an array with the following axes:
@@ -30,33 +40,52 @@ def get_array_slice(
         axis 2: y-coordinate
         axis 3: z-coordinate
     args:
-        var (str) : variable name
-        x (Tuple[int, int]) : x-coordinate slice
-        y (Tuple[int, int]) : y-coordinate slice
-        z (Tuple[int, int]) : z-coordinate slice
-        var_idx (int) : variable index. If var is None, use var_idx
-        conservative (bool) : whether to use conservative variables
-            True: use conservative variables (rho, E, mx, my, mz)
-            False: use primitive variables (rho, P, vx, vy, vz)
+        var (str) : variable name or tuple of variable names. if None, all variables are selected
+        x (Tuple[int, int]) : x-coordinate slice. if None, all x-coordinates are selected
+        y (Tuple[int, int]) : y-coordinate slice. if None, all y-coordinates are selected
+        z (Tuple[int, int]) : z-coordinate slice. if None, all z-coordinates are selected
         ndim (int) : number of dimensions of the array
+        axis (int) : axis to cut, alternative to x, y, z
+        cut (Tuple[int, int]) : slice along dimension specified by axis. ignored if axis is None
+        step (int) : step size for the slice. ignored if axis is None
     returns:
         tuple : slices for the given variable and coordinates
     """
     slices = [slice(None)] * ndim
+
+    # variable slice
     if var is not None:
-        slices[0] = conservative_map[var] if conservative else primitive_map[var]
-    elif var_idx is not None:
-        slices[0] = var_idx
-    if x is not None:
-        slices[1] = slice(x[0] or None, x[1] or None)
-    if y is not None:
-        slices[2] = slice(y[0] or None, y[1] or None)
-    if z is not None:
-        slices[3] = slice(z[0] or None, z[1] or None)
+        if isinstance(var, str):
+            if var not in variable_idx_map:
+                raise ValueError(f"Variable '{var}' not found.")
+            slices[0] = variable_idx_map[var]
+        else:
+            for v in var:
+                if v not in variable_idx_map:
+                    raise ValueError(f"Variable '{v}' not found.")
+            slices[0] = np.array(list(map(variable_idx_map.get, var)))
+
+    # x, y, z slices
+    slices[1] = slice(x[0] or None, x[1] or None) if x is not None else slice(None)
+    slices[2] = slice(y[0] or None, y[1] or None) if y is not None else slice(None)
+    slices[3] = slice(z[0] or None, z[1] or None) if z is not None else slice(None)
+
+    # axis slice
+    if axis is not None:
+        if not (0 <= axis < ndim):
+            raise ValueError(
+                f"Axis {axis} is out of bounds for array with {ndim} dimensions."
+            )
+        if cut is not None:
+            slices[axis] = slice(cut[0] or None, cut[1] or None, step)
     return tuple(slices)
 
 
 class ArrayManager:
+    """
+    Class to manage arrays and their conversion between NumPy and CuPy.
+    """
+
     def __init__(
         self,
     ):
@@ -101,12 +130,19 @@ class ArrayManager:
         self._check_name(name)
         del self.arrays[name]
 
-    def get(self, name: str, return_numpy: bool = False) -> np.ndarray:
-        self._check_name(name)
-        return self.arrays[name]
-
     def get_numpy(self, name: str) -> np.ndarray:
         self._check_name(name)
         if self.using_cupy:
             return cp.asnumpy(self.arrays[name])
+        return self.arrays[name].copy()
+
+    def copy(self, from_name: str, to_name: str) -> np.ndarray:
+        self._check_name(from_name)
+        self.arrays[to_name] = self.arrays[from_name].copy()
+
+    def __call__(self, name: str) -> np.ndarray:
+        self._check_name(name)
         return self.arrays[name]
+
+    def to_dict(self) -> dict:
+        return dict(names=list(self.arrays.keys()), using_cupy=self.using_cupy)
