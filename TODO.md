@@ -1,6 +1,9 @@
 array_manager tests
 
+eliminate use of gv(). switch to get_array_slice()
+
 PAD only?
+
 20% local, relative, no blending
 
 no limiting (advection of square, 2D, CPU vs GPU)

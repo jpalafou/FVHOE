@@ -163,7 +163,7 @@ def hllc(
         if dim == "y"
         else r_gdv
         * v_gdv
-        * np.where(v_gdv > 0, wl[slc("vy")], np.where(v_gdv < 0, wr[slc("vx")], 0))
+        * np.where(v_gdv > 0, wl[slc("vy")], np.where(v_gdv < 0, wr[slc("vy")], 0))
     )
     out[slc("mz")] = (
         r_gdv * v_gdv * v_gdv + P_gdv

@@ -409,7 +409,7 @@ class EulerSolver(ODE):
             raise BaseException("Negative density encountered.")
 
         if self.pressure_floor:
-            w_bc[slc("P")] = np.maximum(w_bc.P, 1e-16)
+            w_bc[slc("P")] = np.maximum(w_bc[slc("P")], 1e-16)
         elif np.min(w_bc[slc("P")]) < 0:
             raise BaseException("Negative pressure encountered.")
 
@@ -716,7 +716,7 @@ class EulerSolver(ODE):
             PAD_violation_magnitude (array_like) : array of PAD violation magnitudes
             reset (bool) : reset the trouble counter. if true, ignores all other arguments
         """
-        if reset:
+        if reset and self.trouble_counter > 0:
             self.am("mean trouble")[...] = (
                 self.am("mean trouble") / self.trouble_counter
             )
@@ -734,8 +734,12 @@ class EulerSolver(ODE):
             self.am("mean PAD mag")[...] = PAD_violation_magnitude
         else:
             self.am("mean trouble")[...] = self.am("mean trouble") + trouble
-            self.am("mean NAD mag")[...] = self.am("mean NAD mag") + trouble
-            self.am("mean PAD mag")[...] = self.am("mean PAD mag") + trouble
+            self.am("mean NAD mag")[...] = (
+                self.am("mean NAD mag") + NAD_violation_magnitude
+            )
+            self.am("mean PAD mag")[...] = (
+                self.am("mean PAD mag") + PAD_violation_magnitude
+            )
         self.trouble_counter += 1
 
     def step_helper_function(self):
@@ -886,13 +890,10 @@ class EulerSolver(ODE):
 
     def plot_fields(self, **kwargs):
         if self.ndim == 1:
-            fig, axs = plt.subplots(2, 3, sharex=True, sharey=True)
-            self.plot_1d_slice(axs[0, 0], param="rho", **kwargs)
-            self.plot_1d_slice(axs[0, 1], param="P", **kwargs)
-            self.plot_1d_slice(axs[0, 2], param="v", **kwargs)
-            self.plot_1d_slice(axs[1, 0], param="vx", **kwargs)
-            self.plot_1d_slice(axs[1, 1], param="vy", **kwargs)
-            self.plot_1d_slice(axs[1, 2], param="vz", **kwargs)
+            fig, axs = plt.subplots(1, 3, sharex=True, sharey=True)
+            self.plot_1d_slice(axs[0], param="rho", **kwargs)
+            self.plot_1d_slice(axs[1], param="P", **kwargs)
+            self.plot_1d_slice(axs[2], param="v" + self.dims, **kwargs)
             return fig, axs
         if self.ndim == 2:
             fig, axs = plt.subplots(2, 3, sharex=True, sharey=True)

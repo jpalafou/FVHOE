@@ -231,8 +231,8 @@ def detect_troubled_cells(
             PAD_indicator[...] = (
                 u_candidate_inner[slc(var)] - lowr
             )  # lower PAD difference
-            PAD_indicator[...] = (
-                uppr - u_candidate_inner[slc(var)]
+            PAD_indicator[...] = np.minimum(
+                PAD_indicator, uppr - u_candidate_inner[slc(var)]
             )  # upper PAD difference
     PAD_trouble = np.where(PAD_indicator < 0.0, 1, 0)
     PAD_violation_magnitude = np.where(PAD_trouble, -PAD_indicator, 0)
