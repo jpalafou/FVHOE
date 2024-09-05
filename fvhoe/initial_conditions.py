@@ -1,4 +1,3 @@
-from functools import wraps
 from fvhoe.array_manager import get_array_slice as slc
 import numpy as np
 from typing import Tuple, Union
@@ -70,7 +69,6 @@ def sinus(
         f(x, y, z)
     """
 
-    @wraps(sinus)
     def f(
         x: np.ndarray,
         y: np.ndarray = None,
@@ -94,6 +92,7 @@ def sinus(
         out = variable_array(r.shape, rho=rho, vx=vx, vy=vy, vz=vz, P=P)
         return out
 
+    f.__name__ = "sinus"
     return f
 
 
@@ -118,7 +117,6 @@ def square(
         f(x, y, z)
     """
 
-    @wraps(square)
     def f(
         x: np.ndarray,
         y: np.ndarray = None,
@@ -141,6 +139,7 @@ def square(
         out = variable_array(r.shape, rho=rho, vx=vx, vy=vy, vz=vz, P=P)
         return out
 
+    f.__name__ = "square"
     return f
 
 
@@ -157,7 +156,6 @@ def slotted_disk(
         f(x, y, z)
     """
 
-    @wraps(slotted_disk)
     def f(
         x: np.ndarray,
         y: np.ndarray,
@@ -186,6 +184,7 @@ def slotted_disk(
         )
         return out
 
+    f.__name__ = "slotted_disk"
     return f
 
 
@@ -208,7 +207,6 @@ def shock_1d(
         f(x, y, z)
     """
 
-    @wraps(shock_1d)
     def f(
         x: np.ndarray,
         y: np.ndarray = None,
@@ -237,6 +235,7 @@ def shock_1d(
         )
         return out
 
+    f.__name__ = "shock_1d"
     return f
 
 
@@ -259,7 +258,6 @@ def double_shock_1d(
         f(x, y, z)
     """
 
-    @wraps(double_shock_1d)
     def f(
         x: np.ndarray,
         y: np.ndarray = None,
@@ -293,6 +291,7 @@ def double_shock_1d(
         )
         return out
 
+    f.__name__ = "double_shock_1d"
     return f
 
 
@@ -305,7 +304,6 @@ def shu_osher_1d(dim: str = "x") -> callable:
         f(x, y, z)
     """
 
-    @wraps(shu_osher_1d)
     def f(x: np.ndarray, y: np.ndarray = None, z: np.ndarray = None) -> np.ndarray:
         """
         Shu Osher initial condition for advection on domain [0, 10]
@@ -328,6 +326,7 @@ def shu_osher_1d(dim: str = "x") -> callable:
         )
         return out
 
+    f.__name__ = "shu_osher_1d"
     return f
 
 
@@ -341,7 +340,6 @@ def kelvin_helmholtz_2d(sigma: float = 0.05 * np.sqrt(2), w0: float = 0.1) -> ca
         f(x, y, z)
     """
 
-    @wraps(kelvin_helmholtz_2d)
     def f(
         x: np.ndarray,
         y: np.ndarray = None,
@@ -374,6 +372,7 @@ def kelvin_helmholtz_2d(sigma: float = 0.05 * np.sqrt(2), w0: float = 0.1) -> ca
         )
         return out
 
+    f.__name__ = "kelvin_helmholtz_2d"
     return f
 
 
@@ -386,7 +385,6 @@ def double_mach_reflection_2d(gamma: float = 1.4) -> callable:
         f(x, y, z)
     """
 
-    @wraps(double_mach_reflection_2d)
     def f(
         x: np.ndarray,
         y: np.ndarray = None,
@@ -414,6 +412,7 @@ def double_mach_reflection_2d(gamma: float = 1.4) -> callable:
         )
         return out
 
+    f.__name__ = "double_mach_reflection_2d"
     return f
 
 
@@ -452,7 +451,6 @@ def shock_tube(
         f(x, y, z)
     """
 
-    @wraps(shock_tube)
     def f(
         x: np.ndarray,
         y: np.ndarray = None,
@@ -509,6 +507,7 @@ def shock_tube(
         )
         return out
 
+    f.__name__ = "shock_tube"
     return f
 
 
@@ -529,7 +528,6 @@ def sedov(
         E1 (float) : peak energy
     """
 
-    @wraps(sedov)
     def f(
         x: np.ndarray,
         y: np.ndarray,
@@ -578,6 +576,7 @@ def sedov(
         out[slc("E")][peak] = Emax
         return out
 
+    f.__name__ = "sedov"
     return f
 
 
@@ -586,7 +585,6 @@ def athena_blast() -> callable:
     returns initial condition function for the Athena test blast f(x, y, z)
     """
 
-    @wraps(athena_blast)
     def f(x: np.ndarray, y: np.ndarray, z: np.ndarray) -> np.ndarray:
         """
         Athena test blast https://www.astro.princeton.edu/~jstone/Athena/tests/blast/blast.html
@@ -614,4 +612,5 @@ def athena_blast() -> callable:
         )
         return out
 
+    f.__name__ = "athena_blast"
     return f

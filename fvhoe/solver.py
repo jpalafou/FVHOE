@@ -19,6 +19,7 @@ from fvhoe.slope_limiting import (
 )
 from fvhoe.timer import Timer
 from fvhoe.visualization import plot_1d_slice, plot_2d_slice
+import inspect
 from itertools import product
 import json
 import matplotlib.pyplot as plt
@@ -214,6 +215,10 @@ class EulerSolver(ODE):
 
         # initial conditions
         self.w0 = w0
+        if not {"x", "y", "z"}.issubset(inspect.signature(self.w0).parameters):
+            raise ValueError(
+                "Initial condition function must accept x, y, z as arguments."
+            )
         if conservative_ic:
             u0 = w0
         else:
@@ -890,7 +895,7 @@ class EulerSolver(ODE):
 
     def plot_fields(self, **kwargs):
         if self.ndim == 1:
-            fig, axs = plt.subplots(1, 3, sharex=True, sharey=True)
+            fig, axs = plt.subplots(1, 3, sharex=True, figsize=(15, 5))
             self.plot_1d_slice(axs[0], param="rho", **kwargs)
             self.plot_1d_slice(axs[1], param="P", **kwargs)
             self.plot_1d_slice(axs[2], param="v" + self.dims, **kwargs)

@@ -9,7 +9,7 @@ try:
 except Exception:
     CUPY_AVAILABLE = False
 
-variable_idx_map = {
+VARIABLE_IDX_MAP = {
     "rho": 0,
     "P": 1,
     "vx": 2,
@@ -56,14 +56,14 @@ def get_array_slice(
     # variable slice
     if var is not None:
         if isinstance(var, str):
-            if var not in variable_idx_map:
+            if var not in VARIABLE_IDX_MAP:
                 raise ValueError(f"Variable '{var}' not found.")
-            slices[0] = variable_idx_map[var]
+            slices[0] = VARIABLE_IDX_MAP[var]
         else:
             for v in var:
-                if v not in variable_idx_map:
+                if v not in VARIABLE_IDX_MAP:
                     raise ValueError(f"Variable '{v}' not found.")
-            slices[0] = np.array(list(map(variable_idx_map.get, var)))
+            slices[0] = np.array(list(map(VARIABLE_IDX_MAP.get, var)))
 
     # x, y, z slices
     slices[1] = slice(x[0] or None, x[1] or None) if x is not None else slice(None)

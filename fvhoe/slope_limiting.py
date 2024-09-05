@@ -1,6 +1,5 @@
-from functools import partial
 from fvhoe.array_manager import get_array_slice as slc
-from fvhoe.fv import get_view
+from fvhoe.fv import get_symmetric_slices
 from fvhoe.smooth_extrema_detection import (
     compute_1d_smooth_extrema_detector,
     compute_2d_smooth_extrema_detector,
@@ -32,9 +31,9 @@ def MUSCL_interpolations(
     returns:
         left_face, right_face (Tuple[np.ndarray, np.ndarray]) : MUSCL reconstructions
     """
-    gv = partial(get_view, ndim=u.ndim, axis=axis)
-    du_left = u[gv(cut=(1, 1))] - u[gv(cut=(0, 2))]
-    du_right = u[gv(cut=(2, 0))] - u[gv(cut=(1, 1))]
+    slices = get_symmetric_slices(3, u.ndim, axis)
+    du_left = u[slices[1]] - u[slices[0]]
+    du_right = u[slices[2]] - u[slices[1]]
 
     match limiter:
         case "minmod":
@@ -46,8 +45,8 @@ def MUSCL_interpolations(
         case _:
             raise ValueError(f"Unknown slope limiter: {limiter}")
 
-    left_face = u[gv(cut=(1, 1))] - 0.5 * limited_slopes
-    right_face = u[gv(cut=(1, 1))] + 0.5 * limited_slopes
+    left_face = u[slices[1]] - 0.5 * limited_slopes
+    right_face = u[slices[1]] + 0.5 * limited_slopes
 
     return left_face, right_face
 

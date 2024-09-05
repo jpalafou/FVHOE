@@ -1,7 +1,6 @@
 from dataclasses import dataclass
 from itertools import product
 from fvhoe.array_manager import get_array_slice as slc
-from fvhoe.fv import get_view
 import numpy as np
 from typing import Any, Dict, Tuple, Union
 
@@ -231,7 +230,7 @@ class BoundaryCondition:
             raise ValueError(
                 f"Cannot apply bc to region of thickness {gw[2]} with a buffer of thickness {self.slab_buffer_size[2]}"
             )
-        xtrim = get_view(
+        xtrim = slc(
             ndim=3,
             axis=0,
             cut=(
@@ -240,7 +239,7 @@ class BoundaryCondition:
                 else (xexcess, xexcess)
             ),
         )
-        ytrim = get_view(
+        ytrim = slc(
             ndim=3,
             axis=1,
             cut=(
@@ -249,7 +248,7 @@ class BoundaryCondition:
                 else (yexcess, yexcess)
             ),
         )
-        ztrim = get_view(
+        ztrim = slc(
             ndim=3,
             axis=2,
             cut=(
