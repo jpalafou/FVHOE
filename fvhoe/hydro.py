@@ -60,20 +60,17 @@ def compute_conservatives(w: np.ndarray, gamma: float) -> np.ndarray:
     return u
 
 
-def compute_sound_speed(
-    w: np.ndarray, gamma: float, rho_P_floor: bool = False
-) -> np.ndarray:
+def compute_sound_speed(w: np.ndarray, gamma: float, csq_floor: float) -> np.ndarray:
     """
     args:
         w (array_like) : has variables names ["rho", "P"]
         gamma (float) : specific heat ratio
-        rho_P_floor (bool) : whether to floor rho and P to 1e-16
+        csq_floor (float) : floor on square of returned sound speed
     returns:
         out (array_like) : sound speeds
     """
-    P = np.maximum(w[slc("P")], 1e-16) if rho_P_floor else w[slc("P")]
-    rho = np.maximum(w[slc("rho")], 1e-16) if rho_P_floor else w[slc("rho")]
-    out = np.sqrt(gamma * P / rho)
+    csq = gamma * w[slc("P")] / w[slc("rho")]
+    out = np.sqrt(np.where(csq > csq_floor, csq, csq_floor))
     return out
 
 
@@ -142,7 +139,7 @@ def hydro_dt(
     ndim: float,
     CFL: float,
     gamma: float,
-    rho_P_sound_speed_floor: bool = False,
+    csq_floor: float,
 ) -> float:
     """
     compute suitable time-step size for Euler equations
@@ -152,17 +149,14 @@ def hydro_dt(
         ndim (int) : number of dimensions
         CFL (float) : Courant-Friedrichs-Lewy condition
         gamma (float) : specific heat ratio
-        rho_P_sound_speed_floor (bool) : whether to apply a floor to density and pressure when computing sound speed
+        csq_floor (float) : floor on square of returned sound speed
     returns:
         out (float) : time-step size
     """
-    c = compute_sound_speed(w, gamma, rho_P_floor=rho_P_sound_speed_floor)
+    c = compute_sound_speed(w, gamma, csq_floor=csq_floor)
     vxa = np.abs(w[slc("vx")])
     vya = np.abs(w[slc("vy")])
     vza = np.abs(w[slc("vz")])
-    out = CFL * h / np.max(vxa + vya + vza + ndim * c).item()
-    if out < 0:
-        raise BaseException("Negative dt encountered.")
-    elif out < 1e-16:
-        raise BaseException("dt is less than 1e-16.")
+    out = CFL * h / np.max(vxa + vya + vza + ndim * c)
+    out = out.item()  # in case of cupy
     return out

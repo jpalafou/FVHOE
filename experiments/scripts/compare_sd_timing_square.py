@@ -15,8 +15,8 @@ from sdader_simulator import SDADER_Simulator
 # experiment params
 n_dims = 2
 n_steps = 100
-Ns = [32, 48, 64, 96, 128, 192, 256, 512, 1024, 2048]
-ps = [1, 3, 7]
+Ns = [2048]
+ps = [7]
 cupys = [True]
 first_order_integrator = True
 save_path = f"out/compare_sd_timing_square_{n_dims=}.csv"
@@ -37,6 +37,7 @@ for N, p, cupy in product(Ns, ps, cupys):
         px=p,
         py=p,
         pz={2: 0, 3: p}[n_dims],
+        riemann_solver="llf",
         CFL=0.01,
         cupy=cupy,
     )

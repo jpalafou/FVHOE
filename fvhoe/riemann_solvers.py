@@ -8,7 +8,7 @@ def advection_upwind(
     wr: np.ndarray,
     gamma: float,
     dim: str,
-    rho_P_sound_speed_floor: bool = False,
+    csq_floor: float,
 ) -> np.ndarray:
     """
     upwinding numerical fluxes, pressure is assumed to be 0
@@ -17,7 +17,7 @@ def advection_upwind(
         wr (array_like) : primitive variables to the right of interface
         gamma (float) : specific heat ratio
         dim (str) : "x", "y", "z"
-        rho_P_sound_speed_floor (bool) : whether to apply a floor to density and pressure when computing sound speed
+        csq_floor (float) : floor on square of returned sound speed
     returns:
         out (array_like) : upwinding fluxes for conservative variables
     """
@@ -42,7 +42,7 @@ def llf(
     wr: np.ndarray,
     gamma: float,
     dim: str,
-    rho_P_sound_speed_floor: bool = False,
+    csq_floor: float,
 ) -> np.ndarray:
     """
     llf numerical fluxes
@@ -53,7 +53,7 @@ def llf(
         wr (array_like) : primitive variables to the right of interface
         gamma (float) : specific heat ratio
         dim (str) : "x", "y", "z"
-        rho_P_sound_speed_floor (bool) : whether to apply a floor to density and pressure when computing sound speed
+        csq_floor (float) : floor on square of returned sound speed
     returns:
         out (array_like) : llf fluxes for conservative variables
     """
@@ -68,10 +68,10 @@ def llf(
 
     # get sound speeds
     sl = np.abs(wl[slc("v" + dim)]) + compute_sound_speed(
-        wl, gamma, rho_P_floor=rho_P_sound_speed_floor
+        wl, gamma, csq_floor=csq_floor
     )
     sr = np.abs(wr[slc("v" + dim)]) + compute_sound_speed(
-        wr, gamma, rho_P_floor=rho_P_sound_speed_floor
+        wr, gamma, csq_floor=csq_floor
     )
     smax = np.maximum(sl, sr)
 
@@ -85,7 +85,7 @@ def hllc(
     wr: np.ndarray,
     gamma: float,
     dim: str,
-    rho_P_sound_speed_floor: bool = False,
+    csq_floor: float,
 ) -> np.ndarray:
     """
     hllc numerical fluxes (David variation)
@@ -94,7 +94,7 @@ def hllc(
         wr (array_like) : primitive variables to the right of interface
         gamma (float) : specific heat ratio
         dir (str) : "x", "y", "z"
-        rho_P_sound_speed_floor (bool) : whether to apply a floor to density and pressure when computing sound speed
+        csq_floor (float) : floor on square of returned sound speed
     returns:
         out (array_like) : hllc fluxes for conservative variables
     """
@@ -104,8 +104,8 @@ def hllc(
     ur = compute_conservatives(wr, gamma)
 
     # sound speed
-    cl = compute_sound_speed(wl, gamma, rho_P_floor=rho_P_sound_speed_floor)
-    cr = compute_sound_speed(wr, gamma, rho_P_floor=rho_P_sound_speed_floor)
+    cl = compute_sound_speed(wl, gamma, csq_floor=csq_floor)
+    cr = compute_sound_speed(wr, gamma, csq_floor=csq_floor)
     cmax = np.maximum(cl, cr)
 
     # single out relevant quantities

@@ -71,10 +71,9 @@ class EulerSolver(ODE):
         SED: bool = True,
         SED_tolerance: float = 1e-10,
         convex: bool = False,
-        density_floor: bool = False,
-        pressure_floor: bool = False,
-        rho_P_sound_speed_floor: bool = False,
-        all_floors: bool = False,
+        density_floor: float = None,
+        pressure_floor: float = None,
+        csq_floor: float = 1e-10,
         progress_bar: bool = True,
         snapshots_as_fv_averages: bool = True,
         snapshot_helper_function: callable = None,
@@ -132,10 +131,9 @@ class EulerSolver(ODE):
             SED (bool) : whether to ignore NAD trouble where smooth extrema are detected
             SED_tolerance (float) : tolerance for avoiding dividing by 0 in smooth extrema detection
             convex (bool) : whether to apply convex slope limiting
-            density_floor (bool) : whether to apply a density floor
-            pressure_floor (bool) : whether to apply a pressure floor
-            rho_P_sound_speed_floor (bool) : whether to apply a pressure and density floor in the sound speed function
-            all_floors (bool) : apply all floors
+            density_floor (float) : density floor after conservative interpolation. if None, a floor is not applied
+            pressure_floor (float) : pressure floor after conservative interpolation. if None, a floor is not applied
+            csq_floor (float) : floor on square of returned sound speed
             progress_bar (bool) : whether to print out a progress bar
             snapshots_as_fv_averages (bool) : save snapshots as finite volume averages. if false, save as cell centers
             snapshot_helper_function (callable) : function to call at the end of a snapshot with self as the sole argument
@@ -272,10 +270,6 @@ class EulerSolver(ODE):
         super().__init__(u0_fv, progress_bar=progress_bar, cupy=cupy)
         self.am.copy("u", "w")
 
-        # initialize timeseries data
-        self.timeseries_E = np.array([np.mean(u0_fv[slc("E")]).item()])
-        self.timeseries_rho = np.array([np.mean(u0_fv[slc("rho")]).item()])
-
         # fixed velocity
         self.fixed_primitive_variables = fixed_primitive_variables
         if fixed_primitive_variables is not None:
@@ -308,9 +302,9 @@ class EulerSolver(ODE):
         self.trouble_counter = 1
 
         # floors
-        self.density_floor = density_floor or all_floors
-        self.pressure_floor = pressure_floor or all_floors
-        self.rho_P_sound_speed_floor = rho_P_sound_speed_floor or all_floors
+        self.density_floor = density_floor
+        self.pressure_floor = pressure_floor
+        self.csq_floor = csq_floor
 
         # plotting functions
         self.plot_1d_slice = lambda *args, **kwargs: plot_1d_slice(
@@ -407,22 +401,11 @@ class EulerSolver(ODE):
             ),
         )
 
-        # check solution for invalid values
-        if self.density_floor:
-            w_bc[slc("rho")] = np.maximum(w_bc[slc("rho")], 1e-16)
-        elif np.min(w_bc[slc("rho")]) < 0:
-            raise BaseException("Negative density encountered.")
-
-        if self.pressure_floor:
-            w_bc[slc("P")] = np.maximum(w_bc[slc("P")], 1e-16)
-        elif np.min(w_bc[slc("P")]) < 0:
-            raise BaseException("Negative pressure encountered.")
-
-        if np.any(np.isnan(w_bc[slc("rho")])):
-            raise BaseException("NaNs encountered in density.")
-
-        if np.any(np.isnan(w_bc[slc("P")])):
-            raise BaseException("NaNs encountered in pressure.")
+        # hard-coded floors
+        if self.density_floor is not None:
+            w_bc[slc("rho")] = np.maximum(w_bc[slc("rho")], self.density_floor)
+        if self.pressure_floor is not None:
+            w_bc[slc("P")] = np.maximum(w_bc[slc("P")], self.pressure_floor)
 
         # and time-step size
         if self.fixed_dt is None:
@@ -432,7 +415,7 @@ class EulerSolver(ODE):
                 ndim=self.ndim,
                 CFL=self.CFL,
                 gamma=self.gamma,
-                rho_P_sound_speed_floor=self.rho_P_sound_speed_floor,
+                csq_floor=self.csq_floor,
             )
         else:
             dt = self.fixed_dt
@@ -498,7 +481,7 @@ class EulerSolver(ODE):
                 wr=w_x_face_center_l[:, 1:, ...],
                 gamma=self.gamma,
                 dim="x",
-                rho_P_sound_speed_floor=self.rho_P_sound_speed_floor,
+                csq_floor=self.csq_floor,
             )
         if self.ydim:
             g_face_center = self.riemann_solver(
@@ -506,7 +489,7 @@ class EulerSolver(ODE):
                 wr=w_y_face_center_l[:, :, 1:, ...],
                 gamma=self.gamma,
                 dim="y",
-                rho_P_sound_speed_floor=self.rho_P_sound_speed_floor,
+                csq_floor=self.csq_floor,
             )
         if self.zdim:
             h_face_center = self.riemann_solver(
@@ -514,7 +497,7 @@ class EulerSolver(ODE):
                 wr=w_z_face_center_l[:, :, :, 1:, ...],
                 gamma=self.gamma,
                 dim="z",
-                rho_P_sound_speed_floor=self.rho_P_sound_speed_floor,
+                csq_floor=self.csq_floor,
             )
         self.timer.stop("hydrofluxes/riemann_solver")
 
@@ -748,13 +731,6 @@ class EulerSolver(ODE):
         self.trouble_counter += 1
 
     def step_helper_function(self):
-        # log timeseries data
-        self.timeseries_E = np.append(
-            self.timeseries_E, np.mean(self.am("u")[slc("E")]).item()
-        )
-        self.timeseries_rho = np.append(
-            self.timeseries_rho, np.mean(self.am("u")[slc("rho")]).item()
-        )
         # log
         if self.a_posteriori_slope_limiting:
             self.log_troubles(reset=True)
