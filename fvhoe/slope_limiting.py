@@ -97,7 +97,7 @@ def detect_troubled_cells(
 ) -> np.ndarray:
     """
     args:
-        u (array_like) : array of values with shape (# variables, nx, ny, nz). if u is a NamedArray, the output will still be a numpy-like array
+        u (array_like) : array of values with shape (# variables, nx, ny, nz).
         u_candidate (array_like) : array of candidate values with shape (# variables, nx, ny, nz)
         dims (str) : contains "x", "y", and/or "z"
         NAD_eps (float) : tolerance for NAD

@@ -4,6 +4,7 @@ from fvhoe.fv import (
     conservative_interpolation,
     fv_average,
     fv_uniform_meshgen,
+    get_stencil_size,
     interpolate_cell_centers,
     interpolate_fv_averages,
     transverse_reconstruction,
@@ -229,6 +230,10 @@ class EulerSolver(ODE):
         else:
             u0_fv = fv_average(f=u0, x=self.X, y=self.Y, z=self.Z, h=self.h, p=self.p)
 
+        # inegrator class init
+        super().__init__(u0_fv, progress_bar=progress_bar, cupy=cupy)
+        self.allocate_arrays()
+
         # get slab coordinates for boundaries
         slab_buffer_sizes = (
             slab_buffer_size if self.xdim else 0,
@@ -240,39 +245,41 @@ class EulerSolver(ODE):
         )
 
         # define boundary conditions
-        self.bc = (
-            BoundaryCondition(
+        if bc is None:
+            self.bc = BoundaryCondition(
                 x=("periodic", "periodic"),
                 y=("periodic", "periodic"),
                 z=("periodic", "periodic"),
+                array_manager=self.am,
             )
-            if bc is None
-            else bc
-        )
-        self.bc.slab_coords = slab_coords
-        self.bc.cupy = cupy
-
-        # configure initial condition boundaries
-        any_ic_bc = False
-        for dim, i in product(["x", "y", "z"], (0, 1)):
-            if getattr(self.bc, dim)[i] == "ic":
-                any_ic_bc = True
-                dim_value = list(getattr(self.bc, f"{dim}_value"))
-                dim_value[i] = u0
-                setattr(self.bc, f"{dim}_value", dim_value)
-        if any_ic_bc and fv_ic:
-            print(
-                "Warning: initial condition function returns finite volume averages and is being used to apply boundary conditions."
+        else:
+            self.bc = BoundaryCondition(
+                x=bc.x,
+                y=bc.y,
+                z=bc.z,
+                x_value=bc.x_value,
+                y_value=bc.y_value,
+                z_value=bc.z_value,
+                slab_coords=slab_coords,
+                array_manager=self.am,
             )
-        self.bc.__post_init__()
 
-        # inegrator class init
-        super().__init__(u0_fv, progress_bar=progress_bar, cupy=cupy)
-        self.am.copy("u", "w")
+        # configure initial condition boundary conditions
+        if "ic" in set(self.bc.x + self.bc.y + self.bc.z):
+            if fv_ic:
+                print(
+                    "Warning: initial condition function returns finite volume averages and is being used to apply boundary conditions."
+                )
+            for dim in "xyz":
+                if getattr(self.bc, dim)[0] == "ic":
+                    self.bc.reset_value(dim, "l", u0)
+                if getattr(self.bc, dim)[1] == "ic":
+                    self.bc.reset_value(dim, "r", u0)
 
         # fixed velocity
         self.fixed_primitive_variables = fixed_primitive_variables
         if fixed_primitive_variables is not None:
+            raise NotImplementedError("fixed_primitive_variables")
             self.am.add("u0", u0_fv)
             self.w0_cell_centers_cache = {}
 
@@ -296,9 +303,6 @@ class EulerSolver(ODE):
         self.SED = SED
         self.SED_tolerance = SED_tolerance
         self.convex = convex
-        self.am.add("mean trouble", np.zeros_like(u0_fv[0]))
-        self.am.copy("mean trouble", "mean NAD mag")
-        self.am.copy("mean trouble", "mean PAD mag")
         self.trouble_counter = 1
 
         # floors
@@ -317,12 +321,29 @@ class EulerSolver(ODE):
         # misc
         self.f_evaluation_count = 0
 
-        # preallocate flux arrays
+    def allocate_arrays(self):
+        """
+        allocate Numpy or CuPy arrays
+        """
+        nx, ny, nz = self.n
+
+        # primitive variables
+        self.am.add("w", np.empty((5, nx, ny, nz)))
+
+        # limiting
+        self.am.add("mean trouble", np.zeros((5, nx, ny, nz)))
+        self.am.add("mean NAD mag", np.zeros((5, nx, ny, nz)))
+        self.am.add("mean PAD mag", np.zeros((5, nx, ny, nz)))
+
+        # fluxes
         self.am.add("F", np.empty((5, nx + 1, ny, nz)))
         self.am.add("G", np.empty((5, nx, ny + 1, nz)))
         self.am.add("H", np.empty((5, nx, ny, nz + 1)))
 
     def f(self, t, u):
+        """
+        compute the RHS of the Euler equations
+        """
         self.f_evaluation_count += 1
         return self.hydrodynamics(u)
 
@@ -395,9 +416,9 @@ class EulerSolver(ODE):
             u=u,
             p=p,
             gw=(
-                2 * int(np.ceil(p[0] / 2)) + gw if self.xdim else 0,
-                2 * int(np.ceil(p[1] / 2)) + gw if self.ydim else 0,
-                2 * int(np.ceil(p[2] / 2)) + gw if self.zdim else 0,
+                gw if self.xdim else 0,
+                gw if self.ydim else 0,
+                gw if self.zdim else 0,
             ),
         )
 
@@ -570,13 +591,13 @@ class EulerSolver(ODE):
         ustar = u + dt * self.euler_equation(F=F, G=G, H=H)
 
         # interpolate finite volume primitives from finite volume conservatives
-        gws = (
-            2 * int(np.ceil(self.p[0] / 2)) + 3 if self.xdim else 0,
-            2 * int(np.ceil(self.p[1] / 2)) + 3 if self.ydim else 0,
-            2 * int(np.ceil(self.p[2] / 2)) + 3 if self.zdim else 0,
+        gw = (
+            3 if self.xdim else 0,
+            3 if self.ydim else 0,
+            3 if self.zdim else 0,
         )
-        w = self.interpolate_primitives_from_conservatives(u, p=self.p, gw=gws)
-        w_star = self.interpolate_primitives_from_conservatives(ustar, p=self.p, gw=gws)
+        w = self.interpolate_primitives_from_conservatives(u, p=self.p, gw=gw)
+        w_star = self.interpolate_primitives_from_conservatives(ustar, p=self.p, gw=gw)
 
         # detect troubled cells
         self.timer.start("revise_fluxes/detect_troubled_cells")
@@ -650,7 +671,7 @@ class EulerSolver(ODE):
         self,
         u: np.ndarray,
         p: Tuple[int, int, int],
-        gw: Tuple[int, int, int],
+        gw: Tuple[int, int, int] = (0, 0, 0),
         fv_average: bool = True,
     ) -> np.ndarray:
         """
@@ -658,11 +679,22 @@ class EulerSolver(ODE):
         args:
             u (array_like) : finite volume conservative variables
             p (Tuple[int, int, int]) : interpolation polynomial degree in 3D (px, py, pz)
-            gw (Tuple[int, int, int]) : number of 'ghost zones' on either side of the array u in each direction (gwx, gwy, gwz)
+            gw (Tuple[int, int, int]) : how many ghost zones w should have on each side (gx, gy, gz).
+                all values should be at least 0
             fv_average (bool) : whether u is cell-averaged or centroids
         returns:
             w (array_like) : primitive variables as finite volume averages or centroids
         """
+        # find required number of ghost zones
+        if fv_average:
+            interp_cost_x = 2 * get_stencil_size(p[0])
+            interp_cost_y = 2 * get_stencil_size(p[1])
+            interp_cost_z = 2 * get_stencil_size(p[2])
+        else:
+            interp_cost_x = get_stencil_size(p[0])
+            interp_cost_y = get_stencil_size(p[1])
+            interp_cost_z = get_stencil_size(p[2])
+        gw = (gw[0] + interp_cost_x, gw[1] + interp_cost_y, gw[2] + interp_cost_z)
         self.timer.start("bc")
         u_bc = self.bc.apply(u, gw=gw, t=self.t)
         self.timer.stop("bc")
@@ -744,11 +776,6 @@ class EulerSolver(ODE):
         self.am("w")[...] = self.interpolate_primitives_from_conservatives(
             u=self.am("u"),
             p=self.p,
-            gw=(
-                int(np.ceil(self.p[0] / 2)) * int(self.snapshots_as_fv_averages + 1),
-                int(np.ceil(self.p[1] / 2)) * int(self.snapshots_as_fv_averages + 1),
-                int(np.ceil(self.p[2] / 2)) * int(self.snapshots_as_fv_averages + 1),
-            ),
             fv_average=self.snapshots_as_fv_averages,
         )
 
@@ -877,13 +904,20 @@ class EulerSolver(ODE):
             self.plot_1d_slice(axs[2], param="v" + self.dims, **kwargs)
             return fig, axs
         if self.ndim == 2:
-            fig, axs = plt.subplots(2, 3, sharex=True, sharey=True)
-            self.plot_2d_slice(axs[0, 0], param="rho", **kwargs)
-            self.plot_2d_slice(axs[0, 1], param="P", **kwargs)
-            self.plot_2d_slice(axs[0, 2], param="v", **kwargs)
-            self.plot_2d_slice(axs[1, 0], param="vx", **kwargs)
-            self.plot_2d_slice(axs[1, 1], param="vy", **kwargs)
-            self.plot_2d_slice(axs[1, 2], param="vz", **kwargs)
+            fig, axs = plt.subplots(2, 3, sharex=True, sharey=True, figsize=(15, 9))
+            varnames = ["rho", "P", "v", "vx", "vy", "vz"]
+            varlabels = [r"$\rho$", r"$P$", r"$v$", r"$v_x$", r"$v_y$", r"$v_z$"]
+            for i, j in product([0, 1], [0, 1, 2]):
+                im = self.plot_2d_slice(axs[i, j], param=varnames[i + j], **kwargs)
+                im_ax = fig.add_axes(
+                    [
+                        axs[i, j].get_position().x0 + axs[i, j].get_position().width,
+                        axs[i, j].get_position().y0,
+                        0.02,
+                        axs[i, j].get_position().height,
+                    ]
+                )
+                fig.colorbar(im, cax=im_ax, label=varlabels[i + j])
             return fig, axs
         raise NotImplementedError(
             "Plotting is only implemented for 1D and 2D simulations."

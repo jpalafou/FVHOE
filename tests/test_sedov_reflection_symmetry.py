@@ -1,4 +1,4 @@
-from functools import partial
+from fvhoe.array_manager import get_array_slice as slc
 from fvhoe.boundary_conditions import BoundaryCondition
 from fvhoe.initial_conditions import sedov
 from fvhoe.solver import EulerSolver
@@ -30,14 +30,15 @@ def test_reflection_symmetry(dims: str, rs: str, p: int, N: int = 16):
         a_posteriori_slope_limiting=p > 0,
         force_trouble=p > 0,
         slope_limiter="minmod",
-        all_floors=True,
+        density_floor=1e-16,
+        pressure_floor=1e-16,
         conservative_ic=True,
         fv_ic=True,
     )
 
     # set up solvers
     solver_partial = EulerSolver(
-        w0=partial(sedov, dims=dims, mode="corner"),
+        w0=sedov(dims=dims, mode="corner"),
         bc=BoundaryCondition(
             x=("reflective", "outflow") if "x" in dims else None,
             y=("reflective", "outflow") if "y" in dims else None,
@@ -49,7 +50,7 @@ def test_reflection_symmetry(dims: str, rs: str, p: int, N: int = 16):
         **sedov_configs,
     )
     solver_full = EulerSolver(
-        w0=partial(sedov, dims=dims, mode="center"),
+        w0=sedov(dims=dims, mode="center"),
         x=(-1, 1) if "x" in dims else (0, 1),
         y=(-1, 1) if "y" in dims else (0, 1),
         z=(-1, 1) if "z" in dims else (0, 1),
@@ -74,12 +75,18 @@ def test_reflection_symmetry(dims: str, rs: str, p: int, N: int = 16):
     ]
 
     # check reflection equivalence
-    assert l1err(w_partial.P, w_full.P) < 1e-15
+    assert l1err(w_partial[slc("P")], w_full[slc("P")]) < 1e-15
 
     # check symmetry of partial solution
     if "x" in dims and "y" in dims:
-        assert l1err(w_partial.P, np.swapaxes(w_partial.P, 0, 1)) < 1e-15
+        assert (
+            l1err(w_partial[slc("P")], np.swapaxes(w_partial[slc("P")], 0, 1)) < 1e-15
+        )
     if "y" in dims and "z" in dims:
-        assert l1err(w_partial.P, np.swapaxes(w_partial.P, 1, 2)) < 1e-15
+        assert (
+            l1err(w_partial[slc("P")], np.swapaxes(w_partial[slc("P")], 1, 2)) < 1e-15
+        )
     if "z" in dims and "x" in dims:
-        assert l1err(w_partial.P, np.swapaxes(w_partial.P, 2, 0)) < 1e-15
+        assert (
+            l1err(w_partial[slc("P")], np.swapaxes(w_partial[slc("P")], 2, 0)) < 1e-15
+        )

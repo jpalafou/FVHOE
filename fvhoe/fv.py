@@ -99,6 +99,26 @@ def get_symmetric_slices(nslices: int, ndim: int, axis: int) -> list:
     ]
 
 
+@lru_cache(maxsize=100)
+def get_stencil_size(p: int, mode: str = "right") -> int:
+    """
+    get the size of a stencil for a given polynomial degree
+    args:
+        p (int) : polynomial degree
+        mode (str) : stencil mode
+            "total" : total number of points in the stencil
+            "right" : number of points to the right of the center
+    returns:
+        int : size of the stencil
+    """
+    if mode == "total":
+        return -2 * (-p // 2) + 1
+    elif mode == "right":
+        return -(-p // 2)
+    else:
+        raise ValueError(f"{mode=}")
+
+
 def conservative_interpolation(
     u: np.ndarray, p: int, axis: int, pos: str = "c"
 ) -> np.ndarray:
@@ -114,7 +134,7 @@ def conservative_interpolation(
     returns:
         out (array_like) : array of interpolations
     """
-    slices = get_symmetric_slices(-2 * (-p // 2) + 1, u.ndim, axis)
+    slices = get_symmetric_slices(get_stencil_size(p, mode="total"), u.ndim, axis)
 
     if pos == "r":
         return conservative_interpolation(
@@ -279,7 +299,7 @@ def transverse_reconstruction(u: np.ndarray, p: int, axis: int) -> np.ndarray:
         out (array_like) : array of interpolations of flux integrals
     """
 
-    slices = get_symmetric_slices(-2 * (-p // 2) + 1, u.ndim, axis)
+    slices = get_symmetric_slices(get_stencil_size(p, mode="total"), u.ndim, axis)
 
     match p:
         case 0:
@@ -406,6 +426,22 @@ def interpolate_fv_averages(
     return out
 
 
+@lru_cache(maxsize=10)
+def get_legendre_quadrature(p: int) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    get Legendre quadrature points and weights, scaled to [0, 1]
+    args:
+        p (int) : polynomial degree
+    returns:
+        points (array_like) : quadrature points
+        weights (array_like) : quadrature weights
+    """
+    points, weights = np.polynomial.legendre.leggauss(-(-(p + 1) // 2))
+    points /= 2
+    weights /= 2
+    return points, weights
+
+
 def fv_average(
     f: callable,
     x: np.ndarray,
@@ -430,12 +466,7 @@ def fv_average(
     hx, hy, hz = h
 
     # quadrature points and weights
-    points_and_weights = []
-    for pi in p:
-        points, weights = np.polynomial.legendre.leggauss(int(np.ceil((pi + 1) / 2)))
-        points /= 2
-        weights /= 2
-        points_and_weights.append((points, weights))
+    points_and_weights = [get_legendre_quadrature(p_i) for p_i in p]
 
     # find cell averages
     out = np.zeros_like(f(x, y, z))

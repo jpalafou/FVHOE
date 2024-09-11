@@ -1,25 +1,26 @@
-from fvhoe.initial_conditions import empty_NamedArray
-from fvhoe.named_array import NamedNumpyArray
+from fvhoe.initial_conditions import variable_array
 from fvhoe.visualization import sample_circular_average
 import numpy as np
 import pytest
 
 
-def primitive_ones(N: int, dims: str) -> NamedNumpyArray:
+def primitive_ones(N: int, dims: str) -> np.ndarray:
     """
     args:
         N (int) : mesh size
         dims (str) : contains "x", "y", and/or "z"
     returns:
-        out (NamedArray) : primitive array where rho and P are 1 and each velocity component in dims is 1
+        out (np.ndarray) : primitive array where rho and P are 1 and each velocity component in dims is 1
     """
     shape = (N if "x" in dims else 1, N if "y" in dims else 1, N if "z" in dims else 1)
-    out = empty_NamedArray(shape)
-    out.rho = 1
-    out.vx = (1 if "x" in dims else 0,)
-    out.vy = (1 if "y" in dims else 0,)
-    out.vz = (1 if "z" in dims else 0,)
-    out.P = 1
+    out = variable_array(
+        shape=shape,
+        rho=1.0,
+        vx=(1 if "x" in dims else 0,),
+        vy=(1 if "y" in dims else 0,),
+        vz=(1 if "z" in dims else 0,),
+        P=1,
+    )
     return out
 
 

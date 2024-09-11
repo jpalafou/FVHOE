@@ -31,7 +31,7 @@ def test_save_load(dir_already_exists: bool, n_snapshots: int):
     N = 60
     p = 0
     solver_config = dict(
-        w0=shock_1d,
+        w0=shock_1d(),
         nx=N,
         px=p,
         riemann_solver="llf",

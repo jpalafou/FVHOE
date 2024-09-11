@@ -16,9 +16,7 @@ def test_first_order_cell_average():
     """
     X, Y, Z = fv_uniform_meshgen((32, 64, 128))
     h = (1 / 32, 1 / 64, 1 / 128)
-
-    def f(x, y, z):
-        return sinus(x, y, z, dims="xyz", vx=1, vy=2, vz=3)
+    f = sinus(dims="xyz", vx=1, vy=2, vz=3)
 
     assert np.all(f(X, Y, Z) == fv_average(f=f, x=X, y=Y, z=Z, h=h))
 
@@ -36,9 +34,7 @@ def test_uniform_cell_average(px, py, pz):
     """
     X, Y, Z = fv_uniform_meshgen((32, 64, 128))
     h = (1 / 32, 1 / 64, 1 / 128)
-
-    def f(x, y, z):
-        return square(x, y, z, dims="xyz", vx=1, vy=2, vz=3)
+    f = square(dims="xyz", vx=1, vy=2, vz=3)
 
     assert (
         l1err(f(X, Y, Z), fv_average(f=f, x=X, y=Y, z=Z, h=h, p=(px, py, pz))) < 1e-15

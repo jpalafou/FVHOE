@@ -89,10 +89,10 @@ def xyzt_summary(
     return out
 
 
-def get_velocity_magnitude(w) -> np.ndarray:
+def get_velocity_magnitude(w: np.ndarray) -> np.ndarray:
     """
     args:
-        w (NamedArray) : primitive variables
+        w (array_like) : primitive variables
     returns:
         out (array_like) : velocity magnitude in 3D
     """

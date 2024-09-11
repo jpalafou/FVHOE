@@ -66,9 +66,12 @@ def get_array_slice(
             slices[0] = np.array(list(map(VARIABLE_IDX_MAP.get, var)))
 
     # x, y, z slices
-    slices[1] = slice(x[0] or None, x[1] or None) if x is not None else slice(None)
-    slices[2] = slice(y[0] or None, y[1] or None) if y is not None else slice(None)
-    slices[3] = slice(z[0] or None, z[1] or None) if z is not None else slice(None)
+    if x is not None:
+        slices[1] = slice(x[0] or None, x[1] or None)
+    if y is not None:
+        slices[2] = slice(y[0] or None, y[1] or None)
+    if z is not None:
+        slices[3] = slice(z[0] or None, z[1] or None)
 
     # axis slice
     if axis is not None:
@@ -92,6 +95,9 @@ class ArrayManager:
         self.arrays = {}
         self.using_cupy = False
 
+    def __repr__(self) -> str:
+        return f"ArrayManager({self.arrays.keys()})"
+
     def enable_cupy(self):
         if CUPY_AVAILABLE:
             self.using_cupy = True
@@ -102,6 +108,8 @@ class ArrayManager:
         self.using_cupy = False
 
     def add(self, name: str, array: np.ndarray):
+        if name in self.arrays:
+            raise KeyError(f"Array with name '{name}' already exists.")
         if not isinstance(array, np.ndarray):
             raise TypeError("array must be of type numpy")
         if self.using_cupy:
@@ -112,20 +120,6 @@ class ArrayManager:
         if name not in self.arrays:
             raise KeyError(f"Array with name '{name}' not found.")
 
-    def convert_to_cupy(self, name: str):
-        self._check_name(name)
-        if not self.using_cupy:
-            raise ValueError("CuPy is not enabled.")
-        if isinstance(self.arrays[name], np.ndarray):
-            self.arrays[name] = cp.asarray(self.arrays[name])
-
-    def convert_to_numpy(self, name: str):
-        self._check_name(name)
-        if not self.using_cupy:
-            raise ValueError("CuPy is not enabled.")
-        if CUPY_AVAILABLE and isinstance(self.arrays[name], cp.ndarray):
-            self.arrays[name] = cp.asnumpy(self.arrays[name])
-
     def remove(self, name: str):
         self._check_name(name)
         del self.arrays[name]
@@ -135,10 +129,6 @@ class ArrayManager:
         if self.using_cupy:
             return cp.asnumpy(self.arrays[name])
         return self.arrays[name].copy()
-
-    def copy(self, from_name: str, to_name: str) -> np.ndarray:
-        self._check_name(from_name)
-        self.arrays[to_name] = self.arrays[from_name].copy()
 
     def __call__(self, name: str) -> np.ndarray:
         self._check_name(name)
