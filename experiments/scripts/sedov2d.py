@@ -18,7 +18,8 @@ solver_config = dict(
     py=p,
     gamma=1.4,
     a_posteriori_slope_limiting=p > 0,
-    all_floors=True,
+    density_floor=1e-16,
+    pressure_floor=1e-16,
     NAD=1e-2,
     cupy=False,
 )

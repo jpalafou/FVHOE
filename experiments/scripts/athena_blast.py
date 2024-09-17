@@ -19,7 +19,8 @@ solver = EulerSolver(
     riemann_solver="hllc",
     a_posteriori_slope_limiting=True,
     NAD=1e-2,
-    all_floors=True,
+    density_floor=1e-16,
+    pressure_floor=1e-16,
     snapshots_as_fv_averages=False,
     cupy=True,
 )

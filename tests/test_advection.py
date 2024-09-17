@@ -1,4 +1,4 @@
-from functools import partial
+from fvhoe.array_manager import get_array_slice as slc
 from fvhoe.hydro import advection_dt
 from fvhoe.initial_conditions import sinus, square
 from fvhoe.solver import EulerSolver
@@ -26,8 +26,7 @@ def test_1d_advection_symmetry(f0: callable, p: int, N: int = 64, t: float = 1):
         py = {"x": 0, "y": p, "z": 0}[dim]
         pz = {"x": 0, "y": 0, "z": p}[dim]
         solver = EulerSolver(
-            w0=partial(
-                f0,
+            w0=f0(
                 dims=dim,
                 vx=1 if dim == "x" else 0,
                 vy=1 if dim == "y" else 0,
@@ -47,12 +46,12 @@ def test_1d_advection_symmetry(f0: callable, p: int, N: int = 64, t: float = 1):
         solutions[dim] = solver
 
     xyerr = l2err(
-        solutions["x"].snapshots[-1]["w"].rho[:, 0, 0],
-        solutions["y"].snapshots[-1]["w"].rho[0, :, 0],
+        solutions["x"].snapshots[-1]["w"][slc("rho")][:, 0, 0],
+        solutions["y"].snapshots[-1]["w"][slc("rho")][0, :, 0],
     )
     yzerr = l2err(
-        solutions["y"].snapshots[-1]["w"].rho[0, :, 0],
-        solutions["z"].snapshots[-1]["w"].rho[0, 0, :],
+        solutions["y"].snapshots[-1]["w"][slc("rho")][0, :, 0],
+        solutions["z"].snapshots[-1]["w"][slc("rho")][0, 0, :],
     )
 
     assert xyerr == 0
@@ -77,8 +76,7 @@ def test_2d_advection_symmetry(p, N=32, t: float = 1):
         py = {"xy": p, "yz": p, "zx": 0}[dims]
         pz = {"xy": 0, "yz": p, "zx": p}[dims]
         solver = EulerSolver(
-            w0=partial(
-                square,
+            w0=square(
                 dims=dims,
                 vx={"xy": 2, "yz": 0, "zx": 2}[dims],
                 vy={"xy": 1, "yz": 2, "zx": 0}[dims],
@@ -98,12 +96,12 @@ def test_2d_advection_symmetry(p, N=32, t: float = 1):
         solutions[dims] = solver
 
     xy_yz_err = l2err(
-        solutions["xy"].snapshots[-1]["w"].rho[:, :, 0],
-        solutions["yz"].snapshots[-1]["w"].rho[0, :, :],
+        solutions["xy"].snapshots[-1]["w"][slc("rho")][:, :, 0],
+        solutions["yz"].snapshots[-1]["w"][slc("rho")][0, :, :],
     )
     yz_zx_err = l2err(
-        solutions["yz"].snapshots[-1]["w"].rho[0, :, :],
-        solutions["zx"].snapshots[-1]["w"].rho[:, 0, :],
+        solutions["yz"].snapshots[-1]["w"][slc("rho")][0, :, :],
+        solutions["zx"].snapshots[-1]["w"][slc("rho")][:, 0, :],
     )
 
     assert xy_yz_err == 0

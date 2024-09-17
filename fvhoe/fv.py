@@ -1,5 +1,6 @@
 from itertools import product
-from functools import partial
+from functools import lru_cache
+from fvhoe.array_manager import get_array_slice as slc
 import numpy as np
 from typing import Tuple
 
@@ -80,31 +81,50 @@ def fv_uniform_meshgen(
     return inner_coords, slab_coords
 
 
-def get_view(
-    ndim: int, axis: int, cut: Tuple[int, int] = (0, 0), step: int = 1
-) -> tuple:
+@lru_cache(maxsize=100)
+def get_symmetric_slices(nslices: int, ndim: int, axis: int) -> list:
     """
-    grab view of array along axis
+    generate a list of symmetric slices
     args:
-        ndim (int) : number of axes
-        axis (int) : along which to get view
-        cut (Tuple[int, int]) : (# elems to remove from left, '' right)
-        step (int) : step length
+        nslices (int) : number of slices
+        ndim (int) : number of dimensions of the sliced array
+        axis (int) : axis along which to slice
     returns:
-        out (tuple) : series of slices specifying view
+        out (list) : list of slices from "left to right" along axis
     """
-    slices = [slice(None)] * ndim
-    slices[axis] = slice(cut[0] or None, -cut[1] or None, step)
-    out = tuple(slices)
-    return out
+    if nslices < 1:
+        raise ValueError(f"{nslices=}")
+    return [
+        slc(ndim=ndim, axis=axis, cut=(i, -(nslices - 1) + i)) for i in range(nslices)
+    ]
+
+
+@lru_cache(maxsize=100)
+def get_stencil_size(p: int, mode: str = "right") -> int:
+    """
+    get the size of a stencil for a given polynomial degree
+    args:
+        p (int) : polynomial degree
+        mode (str) : stencil mode
+            "total" : total number of points in the stencil
+            "right" : number of points to the right of the center
+    returns:
+        int : size of the stencil
+    """
+    if mode == "total":
+        return -2 * (-p // 2) + 1
+    elif mode == "right":
+        return -(-p // 2)
+    else:
+        raise ValueError(f"{mode=}")
 
 
 def conservative_interpolation(
-    fvarr: np.ndarray, p: int, axis: int, pos: str = "c"
+    u: np.ndarray, p: int, axis: int, pos: str = "c"
 ) -> np.ndarray:
     """
     args:
-        fvarr (array_like) : array of finite volume cell averages of arbitrary shape
+        u (array_like) : array of finite volume cell averages of arbitrary shape
         p (int) : polynomial degree of conservative interpolation
         axis (int) : along which to interpolate
         pos (str) : interpolation position along finite volume
@@ -114,171 +134,154 @@ def conservative_interpolation(
     returns:
         out (array_like) : array of interpolations
     """
-
-    gv = partial(get_view, ndim=fvarr.ndim, axis=axis)
+    slices = get_symmetric_slices(get_stencil_size(p, mode="total"), u.ndim, axis)
 
     if pos == "r":
         return conservative_interpolation(
-            fvarr=fvarr[gv(step=-1)],
+            u=u[slc(ndim=u.ndim, axis=axis, cut=(0, 0), step=-1)],
             p=p,
             axis=axis,
             pos="l",
-        )[gv(step=-1)]
+        )[slc(ndim=u.ndim, axis=axis, cut=(0, 0), step=-1)]
 
     match p:
         case 0:
-            out = fvarr.copy()
+            out = u.copy()
         case 1:
             if pos == "l":
-                out = (
-                    1 * fvarr[gv(cut=(0, 2))]
-                    + 4 * fvarr[gv(cut=(1, 1))]
-                    + -1 * fvarr[gv(cut=(2, 0))]
-                ) / 4
+                out = (1 * u[slices[0]] + 4 * u[slices[1]] + -1 * u[slices[2]]) / 4
             elif pos == "c":
-                out = (
-                    0 * fvarr[gv(cut=(0, 2))]
-                    + 1 * fvarr[gv(cut=(1, 1))]
-                    + 0 * fvarr[gv(cut=(2, 0))]
-                ) / 1
+                out = (0 * u[slices[0]] + 1 * u[slices[1]] + 0 * u[slices[2]]) / 1
         case 2:
             if pos == "l":
-                out = (
-                    2 * fvarr[gv(cut=(0, 2))]
-                    + 5 * fvarr[gv(cut=(1, 1))]
-                    + -1 * fvarr[gv(cut=(2, 0))]
-                ) / 6
+                out = (2 * u[slices[0]] + 5 * u[slices[1]] + -1 * u[slices[2]]) / 6
             elif pos == "c":
-                out = (
-                    -1 * fvarr[gv(cut=(0, 2))]
-                    + 26 * fvarr[gv(cut=(1, 1))]
-                    + -1 * fvarr[gv(cut=(2, 0))]
-                ) / 24
+                out = (-1 * u[slices[0]] + 26 * u[slices[1]] + -1 * u[slices[2]]) / 24
         case 3:
             if pos == "l":
                 out = (
-                    -1 * fvarr[gv(cut=(0, 4))]
-                    + 10 * fvarr[gv(cut=(1, 3))]
-                    + 20 * fvarr[gv(cut=(2, 2))]
-                    + -6 * fvarr[gv(cut=(3, 1))]
-                    + 1 * fvarr[gv(cut=(4, 0))]
+                    -1 * u[slices[0]]
+                    + 10 * u[slices[1]]
+                    + 20 * u[slices[2]]
+                    + -6 * u[slices[3]]
+                    + 1 * u[slices[4]]
                 ) / 24
             elif pos == "c":
                 out = (
-                    0 * fvarr[gv(cut=(0, 4))]
-                    + -1 * fvarr[gv(cut=(1, 3))]
-                    + 26 * fvarr[gv(cut=(2, 2))]
-                    + -1 * fvarr[gv(cut=(3, 1))]
-                    + 0 * fvarr[gv(cut=(4, 0))]
+                    0 * u[slices[0]]
+                    + -1 * u[slices[1]]
+                    + 26 * u[slices[2]]
+                    + -1 * u[slices[3]]
+                    + 0 * u[slices[4]]
                 ) / 24
         case 4:
             if pos == "l":
                 out = (
-                    -3 * fvarr[gv(cut=(0, 4))]
-                    + 27 * fvarr[gv(cut=(1, 3))]
-                    + 47 * fvarr[gv(cut=(2, 2))]
-                    + -13 * fvarr[gv(cut=(3, 1))]
-                    + 2 * fvarr[gv(cut=(4, 0))]
+                    -3 * u[slices[0]]
+                    + 27 * u[slices[1]]
+                    + 47 * u[slices[2]]
+                    + -13 * u[slices[3]]
+                    + 2 * u[slices[4]]
                 ) / 60
             elif pos == "c":
                 out = (
-                    9 * fvarr[gv(cut=(0, 4))]
-                    + -116 * fvarr[gv(cut=(1, 3))]
-                    + 2134 * fvarr[gv(cut=(2, 2))]
-                    + -116 * fvarr[gv(cut=(3, 1))]
-                    + 9 * fvarr[gv(cut=(4, 0))]
+                    9 * u[slices[0]]
+                    + -116 * u[slices[1]]
+                    + 2134 * u[slices[2]]
+                    + -116 * u[slices[3]]
+                    + 9 * u[slices[4]]
                 ) / 1920
         case 5:
             if pos == "l":
                 out = (
-                    (1 / 120) * fvarr[gv(cut=(0, 6))]
-                    + (-1 / 12) * fvarr[gv(cut=(1, 5))]
-                    + (59 / 120) * fvarr[gv(cut=(2, 4))]
-                    + (47 / 60) * fvarr[gv(cut=(3, 3))]
-                    + (-31 / 120) * fvarr[gv(cut=(4, 2))]
-                    + (1 / 15) * fvarr[gv(cut=(5, 1))]
-                    + (-1 / 120) * fvarr[gv(cut=(6, 0))]
+                    (1 / 120) * u[slices[0]]
+                    + (-1 / 12) * u[slices[1]]
+                    + (59 / 120) * u[slices[2]]
+                    + (47 / 60) * u[slices[3]]
+                    + (-31 / 120) * u[slices[4]]
+                    + (1 / 15) * u[slices[5]]
+                    + (-1 / 120) * u[slices[6]]
                 )
             elif pos == "c":
                 out = (
-                    0 * fvarr[gv(cut=(0, 6))]
-                    + (3 / 640) * fvarr[gv(cut=(1, 5))]
-                    + (-29 / 480) * fvarr[gv(cut=(2, 4))]
-                    + (1067 / 960) * fvarr[gv(cut=(3, 3))]
-                    + (-29 / 480) * fvarr[gv(cut=(4, 2))]
-                    + (3 / 640) * fvarr[gv(cut=(5, 1))]
-                    + 0 * fvarr[gv(cut=(6, 0))]
+                    0 * u[slices[0]]
+                    + (3 / 640) * u[slices[1]]
+                    + (-29 / 480) * u[slices[2]]
+                    + (1067 / 960) * u[slices[3]]
+                    + (-29 / 480) * u[slices[4]]
+                    + (3 / 640) * u[slices[5]]
+                    + 0 * u[slices[6]]
                 )
         case 6:
             if pos == "l":
                 out = (
-                    (1 / 105) * fvarr[gv(cut=(0, 6))]
-                    + (-19 / 210) * fvarr[gv(cut=(1, 5))]
-                    + (107 / 210) * fvarr[gv(cut=(2, 4))]
-                    + (319 / 420) * fvarr[gv(cut=(3, 3))]
-                    + (-101 / 420) * fvarr[gv(cut=(4, 2))]
-                    + (5 / 84) * fvarr[gv(cut=(5, 1))]
-                    + (-1 / 140) * fvarr[gv(cut=(6, 0))]
+                    (1 / 105) * u[slices[0]]
+                    + (-19 / 210) * u[slices[1]]
+                    + (107 / 210) * u[slices[2]]
+                    + (319 / 420) * u[slices[3]]
+                    + (-101 / 420) * u[slices[4]]
+                    + (5 / 84) * u[slices[5]]
+                    + (-1 / 140) * u[slices[6]]
                 )
             elif pos == "c":
                 out = (
-                    (-5 / 7168) * fvarr[gv(cut=(0, 6))]
-                    + (159 / 17920) * fvarr[gv(cut=(1, 5))]
-                    + (-7621 / 107520) * fvarr[gv(cut=(2, 4))]
-                    + (30251 / 26880) * fvarr[gv(cut=(3, 3))]
-                    + (-7621 / 107520) * fvarr[gv(cut=(4, 2))]
-                    + (159 / 17920) * fvarr[gv(cut=(5, 1))]
-                    + (-5 / 7168) * fvarr[gv(cut=(6, 0))]
+                    (-5 / 7168) * u[slices[0]]
+                    + (159 / 17920) * u[slices[1]]
+                    + (-7621 / 107520) * u[slices[2]]
+                    + (30251 / 26880) * u[slices[3]]
+                    + (-7621 / 107520) * u[slices[4]]
+                    + (159 / 17920) * u[slices[5]]
+                    + (-5 / 7168) * u[slices[6]]
                 )
         case 7:
             if pos == "l":
                 out = (
-                    (-1 / 560) * fvarr[gv(cut=(0, 8))]
-                    + (17 / 840) * fvarr[gv(cut=(1, 7))]
-                    + (-97 / 840) * fvarr[gv(cut=(2, 6))]
-                    + (449 / 840) * fvarr[gv(cut=(3, 5))]
-                    + (319 / 420) * fvarr[gv(cut=(4, 4))]
-                    + (-223 / 840) * fvarr[gv(cut=(5, 3))]
-                    + (71 / 840) * fvarr[gv(cut=(6, 2))]
-                    + (-1 / 56) * fvarr[gv(cut=(7, 1))]
-                    + (1 / 560) * fvarr[gv(cut=(8, 0))]
+                    (-1 / 560) * u[slices[0]]
+                    + (17 / 840) * u[slices[1]]
+                    + (-97 / 840) * u[slices[2]]
+                    + (449 / 840) * u[slices[3]]
+                    + (319 / 420) * u[slices[4]]
+                    + (-223 / 840) * u[slices[5]]
+                    + (71 / 840) * u[slices[6]]
+                    + (-1 / 56) * u[slices[7]]
+                    + (1 / 560) * u[slices[8]]
                 )
             elif pos == "c":
                 out = (
-                    0 * fvarr[gv(cut=(0, 8))]
-                    + (-5 / 7168) * fvarr[gv(cut=(1, 7))]
-                    + (159 / 17920) * fvarr[gv(cut=(2, 6))]
-                    + (-7621 / 107520) * fvarr[gv(cut=(3, 5))]
-                    + (30251 / 26880) * fvarr[gv(cut=(4, 4))]
-                    + (-7621 / 107520) * fvarr[gv(cut=(5, 3))]
-                    + (159 / 17920) * fvarr[gv(cut=(6, 2))]
-                    + (-5 / 7168) * fvarr[gv(cut=(7, 1))]
-                    + 0 * fvarr[gv(cut=(8, 0))]
+                    0 * u[slices[0]]
+                    + (-5 / 7168) * u[slices[1]]
+                    + (159 / 17920) * u[slices[2]]
+                    + (-7621 / 107520) * u[slices[3]]
+                    + (30251 / 26880) * u[slices[4]]
+                    + (-7621 / 107520) * u[slices[5]]
+                    + (159 / 17920) * u[slices[6]]
+                    + (-5 / 7168) * u[slices[7]]
+                    + 0 * u[slices[8]]
                 )
         case 8:
             if pos == "l":
                 out = (
-                    (-1 / 504) * fvarr[gv(cut=(0, 8))]
-                    + (11 / 504) * fvarr[gv(cut=(1, 7))]
-                    + (-61 / 504) * fvarr[gv(cut=(2, 6))]
-                    + (275 / 504) * fvarr[gv(cut=(3, 5))]
-                    + (1879 / 2520) * fvarr[gv(cut=(4, 4))]
-                    + (-641 / 2520) * fvarr[gv(cut=(5, 3))]
-                    + (199 / 2520) * fvarr[gv(cut=(6, 2))]
-                    + (-41 / 2520) * fvarr[gv(cut=(7, 1))]
-                    + (1 / 630) * fvarr[gv(cut=(8, 0))]
+                    (-1 / 504) * u[slices[0]]
+                    + (11 / 504) * u[slices[1]]
+                    + (-61 / 504) * u[slices[2]]
+                    + (275 / 504) * u[slices[3]]
+                    + (1879 / 2520) * u[slices[4]]
+                    + (-641 / 2520) * u[slices[5]]
+                    + (199 / 2520) * u[slices[6]]
+                    + (-41 / 2520) * u[slices[7]]
+                    + (1 / 630) * u[slices[8]]
                 )
             elif pos == "c":
                 out = (
-                    (35 / 294912) * fvarr[gv(cut=(0, 8))]
-                    + (-425 / 258048) * fvarr[gv(cut=(1, 7))]
-                    + (31471 / 2580480) * fvarr[gv(cut=(2, 6))]
-                    + (-100027 / 1290240) * fvarr[gv(cut=(3, 5))]
-                    + (5851067 / 5160960) * fvarr[gv(cut=(4, 4))]
-                    + (-100027 / 1290240) * fvarr[gv(cut=(5, 3))]
-                    + (31471 / 2580480) * fvarr[gv(cut=(6, 2))]
-                    + (-425 / 258048) * fvarr[gv(cut=(7, 1))]
-                    + (35 / 294912) * fvarr[gv(cut=(8, 0))]
+                    (35 / 294912) * u[slices[0]]
+                    + (-425 / 258048) * u[slices[1]]
+                    + (31471 / 2580480) * u[slices[2]]
+                    + (-100027 / 1290240) * u[slices[3]]
+                    + (5851067 / 5160960) * u[slices[4]]
+                    + (-100027 / 1290240) * u[slices[5]]
+                    + (31471 / 2580480) * u[slices[6]]
+                    + (-425 / 258048) * u[slices[7]]
+                    + (35 / 294912) * u[slices[8]]
                 )
         case _:
             raise NotImplementedError(f"{p=}")
@@ -296,78 +299,74 @@ def transverse_reconstruction(u: np.ndarray, p: int, axis: int) -> np.ndarray:
         out (array_like) : array of interpolations of flux integrals
     """
 
-    gv = partial(get_view, ndim=u.ndim, axis=axis)
+    slices = get_symmetric_slices(get_stencil_size(p, mode="total"), u.ndim, axis)
 
     match p:
         case 0:
             out = u.copy()
         case 1:
-            out = (
-                0 * u[gv(cut=(0, 2))] + 1 * u[gv(cut=(1, 1))] + 0 * u[gv(cut=(2, 0))]
-            ) / 1
+            out = (0 * u[slices[0]] + 1 * u[slices[1]] + 0 * u[slices[2]]) / 1
         case 2:
-            out = (
-                1 * u[gv(cut=(0, 2))] + 22 * u[gv(cut=(1, 1))] + 1 * u[gv(cut=(2, 0))]
-            ) / 24
+            out = (1 * u[slices[0]] + 22 * u[slices[1]] + 1 * u[slices[2]]) / 24
         case 3:
             out = (
-                0 * u[gv(cut=(0, 4))]
-                + 1 * u[gv(cut=(1, 3))]
-                + 22 * u[gv(cut=(2, 2))]
-                + 1 * u[gv(cut=(3, 1))]
-                + 0 * u[gv(cut=(4, 0))]
+                0 * u[slices[0]]
+                + 1 * u[slices[1]]
+                + 22 * u[slices[2]]
+                + 1 * u[slices[3]]
+                + 0 * u[slices[4]]
             ) / 24
         case 4:
             out = (
-                -17 * u[gv(cut=(0, 4))]
-                + 308 * u[gv(cut=(1, 3))]
-                + 5178 * u[gv(cut=(2, 2))]
-                + 308 * u[gv(cut=(3, 1))]
-                + -17 * u[gv(cut=(4, 0))]
+                -17 * u[slices[0]]
+                + 308 * u[slices[1]]
+                + 5178 * u[slices[2]]
+                + 308 * u[slices[3]]
+                + -17 * u[slices[4]]
             ) / 5760
         case 5:
             out = (
-                0 * u[gv(cut=(0, 6))]
-                + -17 * u[gv(cut=(1, 5))]
-                + 308 * u[gv(cut=(2, 4))]
-                + 5178 * u[gv(cut=(3, 3))]
-                + 308 * u[gv(cut=(4, 2))]
-                + -17 * u[gv(cut=(5, 1))]
-                + 0 * u[gv(cut=(6, 0))]
+                0 * u[slices[0]]
+                + -17 * u[slices[1]]
+                + 308 * u[slices[2]]
+                + 5178 * u[slices[3]]
+                + 308 * u[slices[4]]
+                + -17 * u[slices[5]]
+                + 0 * u[slices[6]]
             ) / 5760
         case 6:
             out = (
-                (367 / 967680) * u[gv(cut=(0, 6))]
-                + (-281 / 53760) * u[gv(cut=(1, 5))]
-                + (6361 / 107520) * u[gv(cut=(2, 4))]
-                + (215641 / 241920) * u[gv(cut=(3, 3))]
-                + (6361 / 107520) * u[gv(cut=(4, 2))]
-                + (-281 / 53760) * u[gv(cut=(5, 1))]
-                + (367 / 967680) * u[gv(cut=(6, 0))]
+                (367 / 967680) * u[slices[0]]
+                + (-281 / 53760) * u[slices[1]]
+                + (6361 / 107520) * u[slices[2]]
+                + (215641 / 241920) * u[slices[3]]
+                + (6361 / 107520) * u[slices[4]]
+                + (-281 / 53760) * u[slices[5]]
+                + (367 / 967680) * u[slices[6]]
             )
         case 7:
             out = (
-                0 * u[gv(cut=(0, 8))]
-                + (367 / 967680) * u[gv(cut=(1, 7))]
-                + (-281 / 53760) * u[gv(cut=(2, 6))]
-                + (6361 / 107520) * u[gv(cut=(3, 5))]
-                + (215641 / 241920) * u[gv(cut=(4, 4))]
-                + (6361 / 107520) * u[gv(cut=(5, 3))]
-                + (-281 / 53760) * u[gv(cut=(6, 2))]
-                + (367 / 967680) * u[gv(cut=(7, 1))]
-                + 0 * u[gv(cut=(8, 0))]
+                0 * u[slices[0]]
+                + (367 / 967680) * u[slices[1]]
+                + (-281 / 53760) * u[slices[2]]
+                + (6361 / 107520) * u[slices[3]]
+                + (215641 / 241920) * u[slices[4]]
+                + (6361 / 107520) * u[slices[5]]
+                + (-281 / 53760) * u[slices[6]]
+                + (367 / 967680) * u[slices[7]]
+                + 0 * u[slices[8]]
             )
         case 8:
             out = (
-                (-27859 / 464486400) * u[gv(cut=(0, 8))]
-                + (49879 / 58060800) * u[gv(cut=(1, 7))]
-                + (-801973 / 116121600) * u[gv(cut=(2, 6))]
-                + (3629953 / 58060800) * u[gv(cut=(3, 5))]
-                + (41208059 / 46448640) * u[gv(cut=(4, 4))]
-                + (3629953 / 58060800) * u[gv(cut=(5, 3))]
-                + (-801973 / 116121600) * u[gv(cut=(6, 2))]
-                + (49879 / 58060800) * u[gv(cut=(7, 1))]
-                + (-27859 / 464486400) * u[gv(cut=(8, 0))]
+                (-27859 / 464486400) * u[slices[0]]
+                + (49879 / 58060800) * u[slices[1]]
+                + (-801973 / 116121600) * u[slices[2]]
+                + (3629953 / 58060800) * u[slices[3]]
+                + (41208059 / 46448640) * u[slices[4]]
+                + (3629953 / 58060800) * u[slices[5]]
+                + (-801973 / 116121600) * u[slices[6]]
+                + (49879 / 58060800) * u[slices[7]]
+                + (-27859 / 464486400) * u[slices[8]]
             )
         case _:
             raise NotImplementedError(f"{p=}")
@@ -376,19 +375,19 @@ def transverse_reconstruction(u: np.ndarray, p: int, axis: int) -> np.ndarray:
 
 
 def interpolate_cell_centers(
-    fvarr: np.ndarray, p: Tuple[int, int, int] = (0, 0, 0)
+    u: np.ndarray, p: Tuple[int, int, int] = (0, 0, 0)
 ) -> np.ndarray:
     """
     compute cell centers from an array of finite volume averages
     args:
-        fvarr (array_like) : array of finite volume averages, with shape (# vars, nx, ny, nz)
+        u (array_like) : array of finite volume averages, with shape (# vars, nx, ny, nz)
         p (Tuple[int, int, int]) : polynomial degrees in each direction (px, py, pz)
     returns:
         out (array_like) : interpolations of cell centers
     """
     out = conservative_interpolation(
-        fvarr=conservative_interpolation(
-            fvarr=conservative_interpolation(fvarr=fvarr, p=p[0], axis=1, pos="c"),
+        u=conservative_interpolation(
+            u=conservative_interpolation(u=u, p=p[0], axis=1, pos="c"),
             p=p[1],
             axis=2,
             pos="c",
@@ -427,6 +426,22 @@ def interpolate_fv_averages(
     return out
 
 
+@lru_cache(maxsize=10)
+def get_legendre_quadrature(p: int) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    get Legendre quadrature points and weights, scaled to [0, 1]
+    args:
+        p (int) : polynomial degree
+    returns:
+        points (array_like) : quadrature points
+        weights (array_like) : quadrature weights
+    """
+    points, weights = np.polynomial.legendre.leggauss(-(-(p + 1) // 2))
+    points /= 2
+    weights /= 2
+    return points, weights
+
+
 def fv_average(
     f: callable,
     x: np.ndarray,
@@ -451,12 +466,7 @@ def fv_average(
     hx, hy, hz = h
 
     # quadrature points and weights
-    points_and_weights = []
-    for pi in p:
-        points, weights = np.polynomial.legendre.leggauss(int(np.ceil((pi + 1) / 2)))
-        points /= 2
-        weights /= 2
-        points_and_weights.append((points, weights))
+    points_and_weights = [get_legendre_quadrature(p_i) for p_i in p]
 
     # find cell averages
     out = np.zeros_like(f(x, y, z))
@@ -481,8 +491,8 @@ def second_order_central_difference(
     returns:
         out (array_like) : second order central difference of u. shorter than u by 2 along specified axis
     """
-    gv = partial(get_view, ndim=u.ndim, axis=axis)
-    out = 0.5 * (u[gv(cut=(2, 0))] - u[gv(cut=(0, 2))])
+    slices = get_symmetric_slices(3, u.ndim, axis)
+    out = 0.5 * (u[slices[2]] - u[slices[0]])
     if h is not None:
         out /= h
     return out

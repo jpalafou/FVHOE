@@ -1,8 +1,7 @@
 import cupy as cp
 from fvhoe.boundary_conditions import BoundaryCondition
 from fvhoe.config import conservative_names
-from fvhoe.initial_conditions import double_mach_reflection_2d
-from fvhoe.named_array import NamedNumpyArray, NamedCupyArray
+from fvhoe.initial_conditions import double_mach_reflection_2d, variable_array
 from fvhoe.scripting import EulerSolver_wrapper
 from itertools import product
 import numpy as np
@@ -46,7 +45,8 @@ solver_config = dict(
     CFL=0.6,
     gamma=1.4,
     a_posteriori_slope_limiting=p > 0,
-    all_floors=True,
+    density_floor=1e-16,
+    pressure_floor=1e-16,
     cupy=True,
     **NAD_configs[idx],
 )
@@ -56,13 +56,9 @@ def upper_bc(x, y, z, t):
     """
     dirichlet boundary at y=0 for double mach reflection
     """
-    cupy = solver_config["cupy"]
     theta = np.pi / 3
     xp = (10 * t / np.sin(theta)) + (1 / 6) + (y / np.tan(theta))
-    if cupy:
-        out = NamedCupyArray(cp.asarray([np.empty_like(x)] * 5), conservative_names)
-    else:
-        out = NamedNumpyArray(np.asarray([np.empty_like(x)] * 5), conservative_names)
+    out = cp.asarray([np.empty_like(x)] * 5), conservative_names
 
     # primitive
     rho = np.where(x < xp, 8.0, 1.4)
@@ -72,12 +68,15 @@ def upper_bc(x, y, z, t):
 
     # conservative
     mx, my = rho * vx, rho * vy
-
-    out.rho = rho
-    out.mx = mx
-    out.my = my
-    out.mz = 0.0
-    out.E = P / (1.4 - 1) + 0.5 * (mx * vx + my * vy)
+    out = variable_array(
+        shape=x.shape,
+        rho=rho,
+        P=P / (1.4 - 1) + 0.5 * (mx * vx + my * vy),
+        vx=mx,
+        vy=my,
+        vz=0.0,
+        conservative=True,
+    )
 
     return out
 
@@ -91,17 +90,14 @@ EulerSolver_wrapper(
     bc=BoundaryCondition(
         x=("dirichlet", "outflow"),
         x_value=(
-            NamedNumpyArray(
-                np.array(
-                    [
-                        8.0,
-                        116.5 / (1.4 - 1) + 0.5 * 8.0 * (7.145**2 + (-8.25 / 2) ** 2),
-                        8.0 * 7.145,
-                        8.0 * (-8.25 / 2),
-                        0,
-                    ]
-                ),
-                conservative_names,
+            np.array(
+                [
+                    8.0,
+                    116.5 / (1.4 - 1) + 0.5 * 8.0 * (7.145**2 + (-8.25 / 2) ** 2),
+                    8.0 * 7.145,
+                    8.0 * (-8.25 / 2),
+                    0,
+                ]
             ),
             None,
         ),

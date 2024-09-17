@@ -1,11 +1,8 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from itertools import product
-from functools import partial
-from fvhoe.config import conservative_names
-from fvhoe.fv import get_view
-from fvhoe.named_array import NamedNumpyArray, NamedCupyArray
+from fvhoe.array_manager import ArrayManager, get_array_slice as slc
 import numpy as np
-from typing import Any, Dict, Tuple, Union
+from typing import Dict, Tuple, Union
 
 try:
     import cupy as cp
@@ -16,8 +13,8 @@ except Exception:
 
 
 def set_dirichlet_bc(
-    u: NamedNumpyArray,
-    boundary_values: Union[NamedNumpyArray, callable],
+    u: np.ndarray,
+    boundary_values: Union[np.ndarray, callable],
     slab_thickness: int,
     axis: int,
     pos: str,
@@ -26,77 +23,81 @@ def set_dirichlet_bc(
     """
     modify u to impose dirichlet boundaries with either constant values or a function
     args:
-        u (NamedArray) : array to apply boundary conditions to
-        boundary_values (NamedArray, callable) : 1D NamedArray or callable that returns 3D array
+        u (array_like) : array to apply boundary conditions to
+        boundary_values (array_like, callable) : 1D array or callable that returns 3D array
         slab_thickness (int) : thickness of the slab to be copied
         axis (int) : axis to apply periodic boundary conditions
         pos (str) : position of the slab to be copied, "l" or "r"
     returns:
         None, modifies u in place
     """
-    slab_view = get_view(
-        ndim=4,
-        axis=axis,
-        cut={"l": (0, -slab_thickness), "r": (-slab_thickness, 0)}[pos],
-    )
+    slab_view = u[
+        slc(
+            axis=axis,
+            cut={"l": (0, slab_thickness), "r": (-slab_thickness, 0)}[pos],
+        )
+    ]
 
     if callable(boundary_values):
         dirichlet_values = boundary_values(**kwargs)
-    elif isinstance(boundary_values, NamedNumpyArray) or isinstance(
-        boundary_values, NamedCupyArray
+    elif isinstance(boundary_values, np.ndarray) or isinstance(
+        boundary_values, cp.ndarray
     ):
-        dirichlet_values = np.ones_like(u[slab_view]) * boundary_values.reshape(
+        dirichlet_values = np.ones_like(slab_view) * boundary_values.reshape(
             -1, 1, 1, 1
         )
     else:
         raise ValueError(f"Invalid boundary of type '{boundary_values}'.")
 
-    u[slab_view] = dirichlet_values
+    slab_view[...] = dirichlet_values
 
 
-def set_free_bc(u: NamedNumpyArray, slab_thickness: int, axis: int, pos: str):
+def set_free_bc(u: np.ndarray, slab_thickness: int, axis: int, pos: str):
     """
     modify u to impose free boundaries
     args:
-        u: (NamedArray) array to apply boundary conditions to
+        u: (array_like) array to apply boundary conditions to
         slab_thickness: (int) thickness of the slab to be copied
         axis: (int) axis to apply periodic boundary conditions
         pos: (str) position of the slab to be copied, "l" or "r"
     returns:
         None, modifies u in place
     """
-    gv = partial(get_view, ndim=4, axis=axis)
     st = slab_thickness
 
     if pos == "l":
-        u[gv(cut=(0, -st))] = u[gv(cut=(st, -(st + 1)))].copy()
+        outer = slc(axis=axis, cut=(0, st))
+        inner = slc(axis=axis, cut=(st, (st + 1)))
     elif pos == "r":
-        u[gv(cut=(-st, 0))] = u[gv(cut=(-(st + 1), st))].copy()
+        outer = slc(axis=axis, cut=(-st, 0))
+        inner = slc(axis=axis, cut=(-(st + 1), -st))
     else:
         raise ValueError(f"Invalid pos '{pos}'")
 
+    u[outer] = u[inner]
 
-def set_periodic_bc(u: NamedNumpyArray, slab_thickness: int, axis: int) -> None:
+
+def set_periodic_bc(u: np.ndarray, slab_thickness: int, axis: int) -> None:
     """
     modify u to impose periodic boundaries
     args:
-        u: (NamedArray) array to apply periodic boundary conditions to
+        u: (array_like) array to apply periodic boundary conditions to
         slab_thickness: (int) thickness of the slab to be copied
         axis: (int) axis to apply periodic boundary conditions
     returns:
         None, modifies u in place
     """
-    pad_width = [(0, 0), (0, 0), (0, 0), (0, 0)]
-    pad_width[axis] = (slab_thickness, slab_thickness)
-    u[...] = np.pad(
-        u[get_view(ndim=4, axis=axis, cut=(slab_thickness, slab_thickness))],
-        pad_width=pad_width,
-        mode="wrap",
-    )
+    st = slab_thickness
+    outer_l = slc(axis=axis, cut=(0, st))
+    inner_l = slc(axis=axis, cut=(st, 2 * st))
+    outer_r = slc(axis=axis, cut=(-st, 0))
+    inner_r = slc(axis=axis, cut=(-2 * st, -st))
+    u[outer_l] = u[inner_r]
+    u[outer_r] = u[inner_l]
 
 
 def set_symmetric_bc(
-    u: NamedNumpyArray,
+    u: np.ndarray,
     slab_thickness: int,
     axis: int,
     pos: str,
@@ -105,7 +106,7 @@ def set_symmetric_bc(
     """
     modify u to impose symmetric boundaries
     args:
-        u: (NamedArray) array to apply boundary conditions to
+        u: (array_like) array to apply boundary conditions to
         slab_thickness: (int) thickness of the slab to be copied
         axis: (int) axis to apply periodic boundary conditions
         pos: (str) position of the slab to be copied, "l" or "r"
@@ -113,72 +114,90 @@ def set_symmetric_bc(
     returns:
         None, modifies u in place
     """
-    gv = partial(get_view, ndim=4, axis=axis)
     st = slab_thickness
-
+    flip = slc(axis=axis, cut=(0, 0), step=-1)
     if pos == "l":
-        u[gv(cut=(0, -st))] = u[gv(cut=(st, -2 * st))][gv(step=-1)].copy()
+        outer = slc(axis=axis, cut=(0, st))
+        inner = slc(axis=axis, cut=(st, 2 * st))
     elif pos == "r":
-        u[gv(cut=(-st, 0))] = u[gv(cut=(-2 * st, st))][gv(step=-1)].copy()
+        outer = slc(axis=axis, cut=(-st, 0))
+        inner = slc(axis=axis, cut=(-2 * st, -st))
     else:
         raise ValueError(f"Invalid pos '{pos}'")
 
+    u[outer] = u[inner][flip]
+
     # multiply a variable in the slab by -1
     if negate_var is not None:
-        var_data = getattr(u, negate_var)
-        var_data[
-            get_view(
-                ndim=3,
-                axis=axis - 1,
-                cut={
-                    "l": (0, -slab_thickness),
-                    "r": (-slab_thickness, 0),
-                }[pos],
+        u[
+            slc(
+                negate_var,
+                axis=axis,
+                cut={"l": (0, st), "r": (-st, 0)}[pos],
             )
         ] *= -1.0
-        setattr(u, negate_var, var_data)
 
 
 @dataclass
 class BoundaryCondition:
     """
     Specify and apply various boundary conditions in 3D
-    args:
-        x (Union[str, Tuple[str, str]]) : boundary conditions in x-direction
-            tuple : left bc type, right bc type
-            single value : both bc types
-        y (Union[str, Tuple[str, str]]) : boundary conditions in y-direction
-        z (Union[str, Tuple[str, str]]) : boundary conditions in z-direction
-        x_value (Union[Any, Tuple[Any, Any]]) : data for dirichlet boundaries in x-direction
-            tuple : left bc value, right bc value
-            single value : both bc values
-        y_value (Union[Any, Tuple[Any, Any]]) : data for dirichlet boundaries in y-direction
-        z_value (Union[Any, Tuple[Any, Any]]) : data for dirichlet boundaries in z-direction
-        slab_coords (Dict[str, np.ndarray]) : dict of coordinates meshes of slabs in 3D
-            {"xl": (X, Y, Z), ...}
-        cupy (bool) : whether to use cupy
+    x (Union[str, Tuple[str, str]]) : boundary conditions in x-direction
+        tuple : left bc type, right bc type
+        single value : both bc types
+    y (Union[str, Tuple[str, str]]) : boundary conditions in y-direction
+    z (Union[str, Tuple[str, str]]) : boundary conditions in z-direction
+    x_value (Union[Any, Tuple[Any, Any]]) : data for dirichlet boundaries in x-direction
+        tuple : left bc value, right bc value
+        single value : both bc values
+    y_value (Union[Any, Tuple[Any, Any]]) : data for dirichlet boundaries in y-direction
+    z_value (Union[Any, Tuple[Any, Any]]) : data for dirichlet boundaries in z-direction
+    slab_coords (Dict[str, np.ndarray]) : dict of coordinates meshes of slabs in 3D
+        {"xl": (X, Y, Z), ...}
+    array_manager (ArrayManager) : array manager to allocate dirichlet arrays
     """
 
     x: Union[str, Tuple[str, str]] = "periodic"
     y: Union[str, Tuple[str, str]] = "periodic"
     z: Union[str, Tuple[str, str]] = "periodic"
-    x_value: Union[Any, Tuple[Any, Any]] = None
-    y_value: Union[Any, Tuple[Any, Any]] = None
-    z_value: Union[Any, Tuple[Any, Any]] = None
+    x_value: Union[
+        Union[callable, np.ndarray],
+        Tuple[Union[callable, np.ndarray], Union[callable, np.ndarray]],
+    ] = None
+    y_value: Union[
+        Union[callable, np.ndarray],
+        Tuple[Union[callable, np.ndarray], Union[callable, np.ndarray]],
+    ] = None
+    z_value: Union[
+        Union[callable, np.ndarray],
+        Tuple[Union[callable, np.ndarray], Union[callable, np.ndarray]],
+    ] = None
     slab_coords: Dict[str, np.ndarray] = None
-    cupy: bool = False
+    array_manager: ArrayManager = field(default_factory=ArrayManager)
 
     def __post_init__(self):
-        # ensure all bcs and bc values are tuples
-        for dim in "xyz":
-            bc = getattr(self, dim)
-            bc_value = getattr(self, f"{dim}_value")
-            if not (isinstance(bc, tuple) or isinstance(bc, list)):
-                setattr(self, dim, (bc, bc))
-            if not (isinstance(bc_value, tuple) or isinstance(bc_value, list)):
-                setattr(self, f"{dim}_value", (bc_value, bc_value))
+        # convert single values to tuples
+        for dim, suffix in product("xyz", ["", "_value"]):
+            value = getattr(self, f"{dim}{suffix}")
+            if isinstance(value, tuple):
+                if len(value) != 2:
+                    raise ValueError(f"Invalid length of {dim}{suffix} tuple")
+            elif isinstance(value, list):
+                raise ValueError(f"Invalid type of {dim}{suffix}: list")
+            else:
+                setattr(self, f"{dim}{suffix}", (value, value))
 
-        # get slab buffer sizes
+        # allocate dirichlet arrays
+        for dim in "xyz":
+            l_value, r_value = getattr(self, f"{dim}_value")
+            if isinstance(l_value, np.ndarray):
+                self.array_manager.add(f"bc_{dim}l_value", l_value)
+                self.reset_value(dim, "l", self.array_manager(f"bc_{dim}l_value"))
+            if isinstance(r_value, np.ndarray):
+                self.array_manager.add(f"bc_{dim}r_value", r_value)
+                self.reset_value(dim, "r", self.array_manager(f"bc_{dim}r_value"))
+
+        # allocate slab coords
         if self.slab_coords is None:
             self.slab_buffer_size = (0, 0, 0)
         else:
@@ -187,26 +206,29 @@ class BoundaryCondition:
                 self.slab_coords["yl"][0].shape[1],
                 self.slab_coords["zl"][0].shape[2],
             )
-
-        # convert necessary arrays to cupy
-        if self.cupy and CUPY_AVAILABLE:
-            # dirichlet value arrays
-            for dim in "xyz":
-                bc_value = list(getattr(self, f"{dim}_value"))
-                for i in [0, 1]:
-                    if isinstance(bc_value[i], NamedNumpyArray):
-                        bc_value[i] = NamedCupyArray(
-                            input_array=bc_value[i],
-                            names=bc_value[i].variable_names,
-                        )
-                setattr(self, f"{dim}_value", tuple(bc_value))
-
-            # slab coords
             for dim in "xyz":
                 for pos in "lr":
-                    x, y, z = self.slab_coords[dim + pos]
-                    x, y, z = cp.asarray(x), cp.asarray(y), cp.asarray(z)
-                    self.slab_coords[dim + pos] = x, y, z
+                    X, Y, Z = self.slab_coords[dim + pos]
+                    self.array_manager.add(f"bc_{dim}{pos}_slab_x", X)
+                    self.array_manager.add(f"bc_{dim}{pos}_slab_y", Y)
+                    self.array_manager.add(f"bc_{dim}{pos}_slab_z", Z)
+
+    def reset_value(self, dim: str, pos: str, new_value):
+        """
+        reset the first or second element of self.x_value, self.y_value or self.z_value
+        args:
+            dim (str) : dimension to reset ("x", "y", or "z")
+            pos (str) : position to reset ("l" or "r")
+            new_value (array_like) : new value to set
+        """
+        l_value, r_value = getattr(self, f"{dim}_value")
+        if pos == "l":
+            l_value = new_value
+        elif pos == "r":
+            r_value = new_value
+        else:
+            raise ValueError(f"Invalid pos '{pos}'")
+        setattr(self, f"{dim}_value", (l_value, r_value))
 
     def trim_slabs(
         self, gw: Tuple[int, int, int], axis: int, pos: str
@@ -218,7 +240,9 @@ class BoundaryCondition:
             axis (int) : axis of desired slab
             pos (str) : slab position along axis ("l" or "r")
         """
-        X, Y, Z = self.slab_coords[{0: "x", 1: "y", 2: "z"}[axis] + pos]
+        X = self.array_manager(f"bc_{'xyz'[axis]}{pos}_slab_x")
+        Y = self.array_manager(f"bc_{'xyz'[axis]}{pos}_slab_y")
+        Z = self.array_manager(f"bc_{'xyz'[axis]}{pos}_slab_z")
         xexcess = self.slab_buffer_size[0] - gw[0]
         yexcess = self.slab_buffer_size[1] - gw[1]
         zexcess = self.slab_buffer_size[2] - gw[2]
@@ -234,31 +258,31 @@ class BoundaryCondition:
             raise ValueError(
                 f"Cannot apply bc to region of thickness {gw[2]} with a buffer of thickness {self.slab_buffer_size[2]}"
             )
-        xtrim = get_view(
+        xtrim = slc(
             ndim=3,
             axis=0,
             cut=(
-                {"l": (-gw[0], 0), "r": (0, -gw[0])}[pos]
+                {"l": (-gw[0], 0), "r": (0, gw[0])}[pos]
                 if axis == 0
-                else (xexcess, xexcess)
+                else (xexcess, -xexcess)
             ),
         )
-        ytrim = get_view(
+        ytrim = slc(
             ndim=3,
             axis=1,
             cut=(
-                {"l": (-gw[1], 0), "r": (0, -gw[1])}[pos]
+                {"l": (-gw[1], 0), "r": (0, gw[1])}[pos]
                 if axis == 1
-                else (yexcess, yexcess)
+                else (yexcess, -yexcess)
             ),
         )
-        ztrim = get_view(
+        ztrim = slc(
             ndim=3,
             axis=2,
             cut=(
-                {"l": (-gw[2], 0), "r": (0, -gw[2])}[pos]
+                {"l": (-gw[2], 0), "r": (0, gw[2])}[pos]
                 if axis == 2
-                else (zexcess, zexcess)
+                else (zexcess, -zexcess)
             ),
         )
         X = X[xtrim][ytrim][ztrim]
@@ -266,15 +290,15 @@ class BoundaryCondition:
         Z = Z[xtrim][ytrim][ztrim]
         return X, Y, Z
 
-    def apply(self, u: NamedNumpyArray, gw: Tuple[int, int, int], t: float = None):
+    def apply(self, u: np.ndarray, gw: Tuple[int, int, int], t: float = None):
         """
         Apply boundary conditions to conservative variable array u, increasing its size.
         args:
-            u (NamedArray) : array of conservative variables in 3D
+            u (array_like) : array of conservative variables in 3D
             gw (Tuple[int, int, int]) : ghost zone width in x, y, and z
             t : (float) time value
         returns:
-            out (NamedArray) : arrays padded according to gw
+            out (array_like) : arrays padded according to gw
         """
         # apply temporary boundaries of nan
         out = np.pad(
@@ -282,7 +306,6 @@ class BoundaryCondition:
             pad_width=[(0, 0), (gw[0], gw[0]), (gw[1], gw[1]), (gw[2], gw[2])],
             mode="empty",
         )
-        out = u.__class__(input_array=out, names=conservative_names)
 
         # loop through slabs
         for (i, dim), (j, pos) in product(enumerate("xyz"), enumerate("lr")):
@@ -343,7 +366,6 @@ class BoundaryCondition:
 
                     # piecewise combination of the two
                     out = np.where(X < 1 / 6, out_free, out_refl)
-                    out = u.__class__(input_array=out, names=conservative_names)
 
                 case None:
                     pass
@@ -360,5 +382,4 @@ class BoundaryCondition:
             x=self.x,
             y=self.y,
             z=self.z,
-            cupy=self.cupy,
         )

@@ -38,7 +38,8 @@ for N, p, cupy in product(Ns, ps, cupys):
         riemann_solver="hllc",
         a_posteriori_slope_limiting=p > 0,
         NAD=1e-3,
-        all_floors=True,
+        density_floor=1e-16,
+        pressure_floor=1e-16,
         snapshots_as_fv_averages=False,
         cupy=cupy,
     )

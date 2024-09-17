@@ -1,9 +1,7 @@
-from functools import partial
+from fvhoe.array_manager import get_array_slice as slc
 from fvhoe.boundary_conditions import BoundaryCondition
-from fvhoe.config import conservative_names
 from fvhoe.fv import fv_uniform_meshgen
-from fvhoe.initial_conditions import shu_osher_1d
-from fvhoe.named_array import NamedNumpyArray
+from fvhoe.initial_conditions import variable_array, shu_osher_1d
 from fvhoe.solver import EulerSolver
 import numpy as np
 import pytest
@@ -12,8 +10,7 @@ from tests.test_utils import l1err
 
 @pytest.fixture
 def sample_array():
-    data = np.random.rand(5, 10, 10, 10)
-    return NamedNumpyArray(input_array=data, names=conservative_names)
+    return np.random.rand(5, 10, 10, 10)
 
 
 @pytest.mark.parametrize("bc", ["free", "outflow", "periodic", "reflective"])
@@ -27,7 +24,7 @@ def test_init(bc: str, dim: str):
     """
     bc_str = BoundaryCondition(**{dim: bc})
     bc_tup = BoundaryCondition(**{dim: (bc, bc)})
-    assert bc_str == bc_tup
+    assert getattr(bc_str, dim) == getattr(bc_tup, dim)
 
 
 @pytest.mark.parametrize("empty_dim", "xyz")
@@ -41,10 +38,9 @@ def test_2d_bc(empty_dim: str, bc: str, N: int = 64, gw: int = 10):
         gw (int) : number of ghost cells
     """
     # create a 2D random field
-    data = np.random.rand(
+    arr = np.random.rand(
         5, *{"x": (1, N, N), "y": (N, 1, N), "z": (N, N, 1)}[empty_dim]
     )
-    arr = NamedNumpyArray(input_array=data, names=conservative_names)
     gws = [
         0 if empty_dim == "x" else gw,
         0 if empty_dim == "y" else gw,
@@ -78,10 +74,7 @@ def test_periodic_symmetric_equivalence(dim: str, N: int = 64, gw: int = 10):
     """
     # create a 3D sinusoidal field
     (X, Y, Z) = fv_uniform_meshgen((N, N, N))
-    sinus_data = np.cos(2 * np.pi * {"x": X, "y": Y, "z": Z}[dim])
-    sinus_arr = NamedNumpyArray(
-        input_array=np.asarray([sinus_data] * 5), names=conservative_names
-    )
+    sinus_arr = np.array(5 * [np.cos(2 * np.pi * {"x": X, "y": Y, "z": Z}[dim])])
 
     # apply periodic and symmetric boundary conditions
     bc_periodic = BoundaryCondition()
@@ -105,20 +98,21 @@ def test_dirichlet_f_of_xyzt(N: int = 64, gw: int = 10, t: float = 0.5):
 
     # create a 3D sinusoidal field
     def f(x, y, z, t):
-        out = NamedNumpyArray(
-            input_array=np.empty((5, *x.shape)), names=conservative_names
-        )
         data = (
             np.sin(2 * np.pi * x)
             * np.sin(2 * np.pi * y)
             * np.sin(2 * np.pi * z)
             * np.sin(2 * np.pi * t)
         )
-        out.rho = data
-        out.E = 2 * data
-        out.mx = 3 * data
-        out.my = 4 * data
-        out.mz = 5 * data
+        out = variable_array(
+            shape=x.shape,
+            rho=data,
+            P=2 * data,
+            vx=3 * data,
+            vy=4 * data,
+            vz=5 * data,
+            conservative=True,
+        )
         return out
 
     h = 1 / N
@@ -164,7 +158,7 @@ def test_ic_bc(dim: str, p: int, N: int = 100, gamma: float = 1.4, T: float = 1.
     """
     # set up solvers
     solver_configs = dict(
-        w0=partial(shu_osher_1d, dim=dim),
+        w0=shu_osher_1d(dim=dim),
         x=(0, 10) if dim == "x" else (0, 1),
         y=(0, 10) if dim == "y" else (0, 1),
         z=(0, 10) if dim == "z" else (0, 1),
@@ -182,22 +176,16 @@ def test_ic_bc(dim: str, p: int, N: int = 100, gamma: float = 1.4, T: float = 1.
 
     # dirichlet bc
     dirichlet_arrs = (
-        NamedNumpyArray(
-            input_array=np.array(
-                [
-                    3.857143,
-                    10.33333 / (gamma - 1) + 0.5 * 3.857143 * 2.629369 * 2.629369,
-                    3.857143 * 2.629369 if dim == "x" else 0,
-                    3.857143 * 2.629369 if dim == "y" else 0,
-                    3.857143 * 2.629369 if dim == "z" else 0,
-                ]
-            ),
-            names=conservative_names,
+        np.array(
+            [
+                3.857143,
+                10.33333 / (gamma - 1) + 0.5 * 3.857143 * 2.629369 * 2.629369,
+                3.857143 * 2.629369 if dim == "x" else 0,
+                3.857143 * 2.629369 if dim == "y" else 0,
+                3.857143 * 2.629369 if dim == "z" else 0,
+            ]
         ),
-        NamedNumpyArray(
-            input_array=np.array([1 + 0.2 * np.sin(5 * 5), 1 / (gamma - 1), 0, 0, 0]),
-            names=conservative_names,
-        ),
+        np.array([1 + 0.2 * np.sin(5 * 5), 1 / (gamma - 1), 0, 0, 0]),
     )
 
     # solver with dirichlet bc
@@ -229,6 +217,9 @@ def test_ic_bc(dim: str, p: int, N: int = 100, gamma: float = 1.4, T: float = 1.
 
     # compare solvers
     assert (
-        l1err(solver_dirichlet.snapshots[-1]["w"].P, solver_ic.snapshots[-1]["w"].P)
+        l1err(
+            solver_dirichlet.snapshots[-1]["w"][slc("P")],
+            solver_ic.snapshots[-1]["w"][slc("P")],
+        )
         < 1e-14
     )

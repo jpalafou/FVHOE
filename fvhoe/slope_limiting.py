@@ -1,6 +1,5 @@
-from functools import partial
-from fvhoe.fv import get_view
-from fvhoe.named_array import NamedNumpyArray
+from fvhoe.array_manager import get_array_slice as slc
+from fvhoe.fv import get_symmetric_slices
 from fvhoe.smooth_extrema_detection import (
     compute_1d_smooth_extrema_detector,
     compute_2d_smooth_extrema_detector,
@@ -32,9 +31,9 @@ def MUSCL_interpolations(
     returns:
         left_face, right_face (Tuple[np.ndarray, np.ndarray]) : MUSCL reconstructions
     """
-    gv = partial(get_view, ndim=u.ndim, axis=axis)
-    du_left = u[gv(cut=(1, 1))] - u[gv(cut=(0, 2))]
-    du_right = u[gv(cut=(2, 0))] - u[gv(cut=(1, 1))]
+    slices = get_symmetric_slices(3, u.ndim, axis)
+    du_left = u[slices[1]] - u[slices[0]]
+    du_right = u[slices[2]] - u[slices[1]]
 
     match limiter:
         case "minmod":
@@ -46,8 +45,8 @@ def MUSCL_interpolations(
         case _:
             raise ValueError(f"Unknown slope limiter: {limiter}")
 
-    left_face = u[gv(cut=(1, 1))] - 0.5 * limited_slopes
-    right_face = u[gv(cut=(1, 1))] + 0.5 * limited_slopes
+    left_face = u[slices[1]] - 0.5 * limited_slopes
+    right_face = u[slices[1]] + 0.5 * limited_slopes
 
     return left_face, right_face
 
@@ -84,13 +83,13 @@ def moncen(du_left: np.ndarray, du_right: np.ndarray) -> np.ndarray:
 
 
 def detect_troubled_cells(
-    u: NamedNumpyArray,
-    u_candidate: NamedNumpyArray,
+    u: np.ndarray,
+    u_candidate: np.ndarray,
     dims: str = "xyz",
     NAD_eps: float = 1e-5,
     mode: str = "global",
     range_type: str = "relative",
-    NAD_vars: list = None,
+    NAD_vars: tuple = None,
     PAD_bounds: Dict[str, Tuple[float, float]] = None,
     SED: bool = True,
     SED_eps: float = 1e-10,
@@ -98,8 +97,8 @@ def detect_troubled_cells(
 ) -> np.ndarray:
     """
     args:
-        u (NamedArray) : array of values with shape (# variables, nx, ny, nz). if u is a NamedArray, the output will still be a numpy-like array
-        u_candidate (NameArray) : array of candidate values with shape (# variables, nx, ny, nz)
+        u (array_like) : array of values with shape (# variables, nx, ny, nz).
+        u_candidate (array_like) : array of candidate values with shape (# variables, nx, ny, nz)
         dims (str) : contains "x", "y", and/or "z"
         NAD_eps (float) : tolerance for NAD
         mode (str) : "global" or "local"
@@ -112,7 +111,7 @@ def detect_troubled_cells(
             "absolute" : NAD is applied based on the absolute range of each variable
                 upper_bound = (1 + eps) * max
                 lower_bound = (1 - eps) * min
-        NAD_vars (list) : list of variables to apply NAD. if None, all variables are considered
+        NAD_vars (tuple) : tuple of variables to apply NAD. if None, all variables are considered
         PAD_bounds (dict) : dictionary of PAD parameters. keys are variable names, values are tuples of lower and upper bounds, e.g. {"u": (0, 1)}. PAD is not applied if None
         SED (bool) : remove NAD trouble flags where a smooth extremum is detected
         SED_eps (float) : tolerance for avoiding dividing by 0 in smooth extrema detection
@@ -137,12 +136,8 @@ def detect_troubled_cells(
     interior_slice = tuple(interior_slice)
 
     # filter views
-    if NAD_vars is None:
-        u_copy = u.copy()
-        u_candidate_copy = u_candidate.copy()
-    else:
-        u_copy = u.filter(NAD_vars)
-        u_candidate_copy = u_candidate.filter(NAD_vars)
+    u_copy = u.copy()
+    u_candidate_copy = u_candidate.copy()
     u_candidate_inner = u_candidate_copy[interior_slice]
 
     # take maximum and minimum of neighbors
@@ -171,7 +166,6 @@ def detect_troubled_cells(
             u_range = np.max(u_copy, axis=(1, 2, 3), keepdims=True) - np.min(
                 u_copy, axis=(1, 2, 3), keepdims=True
             )
-            u_range = u_copy.__class__(u_range, u_copy.variable_names)
         elif mode == "local":
             # relative local NAD
             u_range = M - m
@@ -219,6 +213,10 @@ def detect_troubled_cells(
         NAD_trouble_per_var[...] = np.where(alpha_per_var < 1, NAD_trouble_per_var, 0)
 
     # NAD across all variables
+    if NAD_vars is not None:
+        NAD_var_filter = np.zeros((5, 1, 1, 1))
+        NAD_var_filter[slc(NAD_vars)] = 1
+        NAD_trouble_per_var = np.where(NAD_var_filter, NAD_trouble_per_var, 0)
     NAD_trouble = np.any(NAD_trouble_per_var, axis=0)
 
     # store NAD violation magnitude
@@ -229,13 +227,11 @@ def detect_troubled_cells(
     PAD_indicator = np.zeros_like(NAD_violation_magnitude)
     if PAD_bounds is not None:
         for var, (lowr, uppr) in PAD_bounds.items():
-            if var not in u_candidate_inner.variable_names:
-                raise ValueError(f"Variable {var} not found in u")
             PAD_indicator[...] = (
-                getattr(u_candidate_inner, var) - lowr
+                u_candidate_inner[slc(var)] - lowr
             )  # lower PAD difference
             PAD_indicator[...] = np.minimum(
-                PAD_indicator, uppr - getattr(u_candidate_inner, var)
+                PAD_indicator, uppr - u_candidate_inner[slc(var)]
             )  # upper PAD difference
     PAD_trouble = np.where(PAD_indicator < 0.0, 1, 0)
     PAD_violation_magnitude = np.where(PAD_trouble, -PAD_indicator, 0)

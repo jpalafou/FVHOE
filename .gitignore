@@ -4,10 +4,11 @@
 build/
 fvhoe.egg-info/
 .nox/
+*.py.lprof
 .ruff_cache/
 
 # outputs
-**/bin/
+bin/
 **/data/
 **/out/
 **/snapshots/

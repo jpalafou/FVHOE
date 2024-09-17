@@ -1,8 +1,6 @@
-from functools import partial
+from fvhoe.array_manager import get_array_slice as slc
 from fvhoe.boundary_conditions import BoundaryCondition
-from fvhoe.config import primitive_names
 from fvhoe.initial_conditions import double_shock_1d, sedov
-from fvhoe.named_array import NamedNumpyArray
 from fvhoe.slope_limiting import detect_troubled_cells
 from fvhoe.solver import EulerSolver
 import numpy as np
@@ -14,7 +12,7 @@ from tests.test_utils import l2err
 @pytest.mark.parametrize("NAD_eps", [1e-2, 1e-5])
 @pytest.mark.parametrize("mode", ["local", "global"])
 @pytest.mark.parametrize("range_type", ["relative", "absolute"])
-@pytest.mark.parametrize("NAD_vars", [None, ["rho", "P"]])
+@pytest.mark.parametrize("NAD_vars", [None, ("rho", "P")])
 @pytest.mark.parametrize("PAD_bounds", [None, {"rho": (0, np.inf), "P": (0, np.inf)}])
 @pytest.mark.parametrize("SED", [False, True])
 def test_detect_troubled_cells(
@@ -40,31 +38,17 @@ def test_detect_troubled_cells(
         N (int) : resolution
     """
 
-    w = NamedNumpyArray(
-        np.asarray(
-            [
-                np.random.rand(
-                    N if "x" in dim else 1,
-                    N if "y" in dim else 1,
-                    N if "z" in dim else 1,
-                )
-            ]
-            * 5
-        ),
-        primitive_names,
+    w = np.random.rand(
+        5,
+        N if "x" in dim else 1,
+        N if "y" in dim else 1,
+        N if "z" in dim else 1,
     )
-    w_candidate = NamedNumpyArray(
-        np.asarray(
-            [
-                np.random.rand(
-                    N if "x" in dim else 1,
-                    N if "y" in dim else 1,
-                    N if "z" in dim else 1,
-                )
-            ]
-            * 5
-        ),
-        primitive_names,
+    w_candidate = np.random.rand(
+        5,
+        N if "x" in dim else 1,
+        N if "y" in dim else 1,
+        N if "z" in dim else 1,
     )
     detect_troubled_cells(
         u=w,
@@ -96,7 +80,7 @@ def test_1d_symmetry(p: int, rs: str, limiting_config: dict, N: int = 100):
     solutions = {}
     for dim in ["x", "y", "z"]:
         solver = EulerSolver(
-            w0=partial(double_shock_1d, dim=dim),
+            w0=double_shock_1d(dim=dim),
             nx=N if dim == "x" else 1,
             ny=N if dim == "y" else 1,
             nz=N if dim == "z" else 1,
@@ -110,7 +94,8 @@ def test_1d_symmetry(p: int, rs: str, limiting_config: dict, N: int = 100):
                 z="reflective" if dim == "z" else "periodic",
             ),
             gamma=1.4,
-            all_floors=True,
+            density_floor=1e-16,
+            pressure_floor=1e-16,
             a_posteriori_slope_limiting=True,
             **limiting_config,
         )
@@ -118,12 +103,12 @@ def test_1d_symmetry(p: int, rs: str, limiting_config: dict, N: int = 100):
         solutions[dim] = solver
 
     xyerr = l2err(
-        solutions["x"].snapshots[-1]["w"].rho[:, 0, 0],
-        solutions["y"].snapshots[-1]["w"].rho[0, :, 0],
+        solutions["x"].snapshots[-1]["w"][slc("rho")][:, 0, 0],
+        solutions["y"].snapshots[-1]["w"][slc("rho")][0, :, 0],
     )
     yzerr = l2err(
-        solutions["y"].snapshots[-1]["w"].rho[0, :, 0],
-        solutions["z"].snapshots[-1]["w"].rho[0, 0, :],
+        solutions["y"].snapshots[-1]["w"][slc("rho")][0, :, 0],
+        solutions["z"].snapshots[-1]["w"][slc("rho")][0, 0, :],
     )
 
     assert xyerr == 0
@@ -148,7 +133,7 @@ def test_2d_symmetry(p: int, rs: str, limiting_config: dict, N: int = 32):
     solutions = {}
     for dims in ["xy", "yz", "zx"]:
         solver = EulerSolver(
-            w0=partial(sedov, dims=dims),
+            w0=sedov(dims=dims),
             conservative_ic=True,
             fv_ic=True,
             nx=N if "x" in dims else 1,
@@ -164,7 +149,8 @@ def test_2d_symmetry(p: int, rs: str, limiting_config: dict, N: int = 32):
                 z=("reflective", "outflow") if "z" in dims else None,
             ),
             gamma=1.4,
-            all_floors=True,
+            density_floor=1e-16,
+            pressure_floor=1e-16,
             a_posteriori_slope_limiting=True,
             **limiting_config,
         )
@@ -172,12 +158,12 @@ def test_2d_symmetry(p: int, rs: str, limiting_config: dict, N: int = 32):
         solutions[dims] = solver
 
     xy_yz_err = l2err(
-        solutions["xy"].snapshots[-1]["w"].rho[:, :, 0],
-        solutions["yz"].snapshots[-1]["w"].rho[0, :, :],
+        solutions["xy"].snapshots[-1]["w"][slc("rho")][:, :, 0],
+        solutions["yz"].snapshots[-1]["w"][slc("rho")][0, :, :],
     )
     yz_zx_err = l2err(
-        solutions["yz"].snapshots[-1]["w"].rho[0, :, :],
-        solutions["zx"].snapshots[-1]["w"].rho[:, 0, :],
+        solutions["yz"].snapshots[-1]["w"][slc("rho")][0, :, :],
+        solutions["zx"].snapshots[-1]["w"][slc("rho")][:, 0, :],
     )
 
     assert xy_yz_err == 0
