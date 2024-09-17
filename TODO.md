@@ -1,6 +1,8 @@
 PAD only?
 20% local, relative, no blending
 
+pre-compute stencil weights
+
 no limiting (advection of square, 2D, CPU vs GPU)
     p=0, euler vs p=0 (SD_update=True), m=0 # should be the same
     at different p [1, 3, 7], fixed number of steps
