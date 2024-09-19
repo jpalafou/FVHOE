@@ -46,7 +46,7 @@ class ODE(ABC):
         self.am.add("u", u0)
 
         # timer
-        self.timer = Timer(cats=["INTEGRATE", "SNAPSHOTS"])
+        self.timer = Timer(cats=["TOTAL", "SNAPSHOTS"])
 
         # snapshots
         self.snapshots = []
@@ -115,7 +115,7 @@ class ODE(ABC):
 
         # if given n, perform a simple time evolution
         if predetermined_step_count:
-            self.timer.start("INTEGRATE")
+            self.timer.start("TOTAL")
             self.timer.start("SNAPSHOTS")
             self.snapshot()
             self.timer.stop("SNAPSHOTS")
@@ -124,7 +124,7 @@ class ODE(ABC):
             self.timer.start("SNAPSHOTS")
             self.snapshot()
             self.timer.stop("SNAPSHOTS")
-            self.timer.stop("INTEGRATE")
+            self.timer.stop("TOTAL")
             return
 
         # if save is True, try to read snapshots
@@ -153,7 +153,7 @@ class ODE(ABC):
         self.snapshot()
 
         # simulation loop
-        self.timer.start("INTEGRATE")
+        self.timer.start("TOTAL")
         while self.t < T:
             self.take_step(target_time=target_time)
             self.progress_bar_action(action="update")
@@ -164,7 +164,7 @@ class ODE(ABC):
                 self.timer.stop("SNAPSHOTS")
                 if downbeats and self.t == target_time:
                     target_time = downbeats.pop(0)
-        self.timer.stop("INTEGRATE")
+        self.timer.stop("TOTAL")
 
         # clean up progress bar
         self.progress_bar_action(action="cleanup")

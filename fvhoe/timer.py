@@ -16,7 +16,7 @@ class Timer:
         """
         self.cats = ()
         self._start_time = {}
-        self.cum_times = {}
+        self.cum_time = {}
         self.add_cat(cats)
         self.precision = precision
 
@@ -33,7 +33,7 @@ class Timer:
                 raise ValueError(f"Category '{c}' already exists.")
             self.cats = (*self.cats, c)
             self._start_time[c] = None
-            self.cum_times[c] = 0.0
+            self.cum_time[c] = 0.0
 
     def check_cat_existence(self, cat: str):
         """
@@ -68,11 +68,11 @@ class Timer:
             raise RuntimeError(
                 f"Cannot stop '{cat}' timer since it is not in progress."
             )
-        self.cum_times[cat] += time.time() - self._start_time[cat]
+        self.cum_time[cat] += time.time() - self._start_time[cat]
         self._start_time[cat] = None
 
     def to_dict(self) -> dict:
-        out = {cat: np.round(t, self.precision) for cat, t in self.cum_times.items()}
+        out = {cat: np.round(t, self.precision) for cat, t in self.cum_time.items()}
         return out
 
     def report(self) -> str:
@@ -90,8 +90,8 @@ class Timer:
         )
         max_time_len = max(
             (
-                max(len(f"{t:.{self.precision}f}") for t in self.cum_times.values())
-                if self.cum_times
+                max(len(f"{t:.{self.precision}f}") for t in self.cum_time.values())
+                if self.cum_time
                 else len(time_header)
             ),
             len(time_header),
@@ -102,7 +102,7 @@ class Timer:
         report_str += "-" * (max_cat_len + max_time_len + 1) + "\n"
 
         # Add each category and time, formatted to the correct precision and width
-        for cat, t in self.cum_times.items():
+        for cat, t in self.cum_time.items():
             time_str = f"{t:.{self.precision}f}"
             report_str += f"{cat:<{max_cat_len}} {time_str:>{max_time_len}}\n"
 

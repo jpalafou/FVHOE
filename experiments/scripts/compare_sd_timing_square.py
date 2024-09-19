@@ -6,12 +6,12 @@ import numpy as np
 import pandas as pd
 
 # experiment params
-n_dims = 3
+n_dims = 2
 n_steps = 100
 if n_dims == 1:
     DOFss = 2 ** np.arange(3, 23)
 elif n_dims == 2:
-    DOFss = 2 ** np.arange(3, 12)
+    DOFss = 2 ** np.arange(3, 10)
 elif n_dims == 3:
     DOFss = 2 ** np.arange(3, 8)
 ps = [1, 3, 7]
@@ -27,10 +27,15 @@ first_order_integrator = True
 
 # import sd if necessary
 if include_sd:
+    import os
     import sys
 
-    sys.path.append("../../spd/src")
-    sys.path.append("../../spd/utils")
+    spd_path = os.path.abspath(
+        os.path.join(os.path.dirname(__file__), "..", "..", "spd", "src")
+    )
+
+    if spd_path not in sys.path:
+        sys.path.append(spd_path)
 
     import initial_conditions as ic
     from sdader_simulator import SDADER_Simulator
@@ -83,7 +88,9 @@ for DOFs, p, slope_limiting, cupy in product(DOFss, ps, slope_limitings, cupys):
             n_steps=n_steps,
             n_substeps=1 if first_order_integrator else min(p + 1, 4),
             cupy=cupy,
-            execution_time=fv.execution_time,
+            total_time=fv.timer.cum_time["TOTAL"],
+            riemann_time=fv.timer.cum_time["(high-order) riemann solver"]
+            + fv.timer.cum_time["(fallback scheme) riemann solver"],
         )
     )
 
@@ -117,7 +124,9 @@ for DOFs, p, slope_limiting, cupy in product(DOFss, ps, slope_limitings, cupys):
                 n_steps=n_steps,
                 n_substeps=1 if first_order_integrator else p + 1,
                 cupy=cupy,
-                execution_time=sd.execution_time,
+                total_time=sd.timer.cum_time["TOTAL"],
+                riemann_time=sd.timer.cum_time["(sd) riemann solver"]
+                + sd.timer.cum_time["(fv) riemann solver"],
             )
         )
 
