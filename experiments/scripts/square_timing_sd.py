@@ -1,7 +1,7 @@
 import sys
 
-sys.path.append("/home/jp7427/Desktop/spd/src")
-sys.path.append("/home/jp7427/Desktop/spd/utils")
+sys.path.append("../../spd/src")
+sys.path.append("../../spd/utils")
 
 import initial_conditions as ic
 from sdader_simulator import SDADER_Simulator
