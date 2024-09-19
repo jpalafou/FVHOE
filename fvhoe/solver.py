@@ -18,7 +18,6 @@ from fvhoe.slope_limiting import (
     detect_troubled_cells,
     MUSCL_interpolations,
 )
-from fvhoe.timer import Timer
 from fvhoe.visualization import plot_1d_slice, plot_2d_slice
 import inspect
 from itertools import product
@@ -193,25 +192,6 @@ class EulerSolver(ODE):
         self.snapshots_as_fv_averages = snapshots_as_fv_averages
         self.snapshot_helper_function = snapshot_helper_function
 
-        # timing
-        self.timer = Timer(
-            [
-                "bc",
-                "hydrodynamics",
-                "hydrodynamics/hydrofluxes",
-                "hydrofluxes",
-                "hydrofluxes/conservative_interpolation",
-                "hydrofluxes/riemann_solver",
-                "hydrofluxes/transverse_reconstruction",
-                "interpolate_cell_centers",
-                "revise_fluxes",
-                "revise_fluxes/broadcast_to_troubled_interfaces",
-                "revise_fluxes/detect_troubled_cells",
-                "revise_fluxes/hydrofluxes",
-                "snapshot",
-            ]
-        )
-
         # initial conditions
         self.w0 = w0
         if not {"x", "y", "z"}.issubset(inspect.signature(self.w0).parameters):
@@ -318,6 +298,23 @@ class EulerSolver(ODE):
             self, *args, **kwargs
         )
 
+        # configure timer categories
+        self.timer.add_cat(
+            [
+                "boundary conditions",
+                "(high-order) hydrofluxes",
+                "(high-order) riemann solver",
+                "(high-order) conservative interpolation",
+                "(high-order) transverse reconstruction",
+                "(fallback scheme)",
+                "(fallback scheme) troubled cell detection",
+                "(fallback scheme) hydrofluxes",
+                "(fallback scheme) riemann solver",
+                "(fallback scheme) conservative interpolation",
+                "(fallback scheme) transverse reconstruction",
+            ]
+        )
+
         # misc
         self.f_evaluation_count = 0
 
@@ -356,15 +353,11 @@ class EulerSolver(ODE):
             dt, dudt (float, array_like) : time-step size, conservative variable dynamics
         """
         # high-order fluxes
-        self.timer.start("hydrodynamics")
-        self.timer.start("hydrodynamics/hydrofluxes")
         dt, (self.am("F")[...], self.am("G")[...], self.am("H")[...]) = (
-            self.hydrofluxes(u=u, p=self.p)
+            self.hydrofluxes(u=u, p=self.p, timer_prefix="(high-order) ")
         )
-        self.timer.stop("hydrodynamics/hydrofluxes")
 
         if self.a_posteriori_slope_limiting:
-            self.timer.start("revise_fluxes")
             self.revise_fluxes(
                 u=u,
                 F=self.am("F"),
@@ -373,15 +366,17 @@ class EulerSolver(ODE):
                 dt=dt,
                 force_trouble=self.force_trouble,
             )
-            self.timer.stop("revise_fluxes")
 
         # compute conservative variable dynamics
         dudt = self.euler_equation(F=self.am("F"), G=self.am("G"), H=self.am("H"))
-        self.timer.stop("hydrodynamics")
         return dt, dudt
 
     def hydrofluxes(
-        self, u: np.ndarray, p: Tuple[int, int, int], slope_limiter: str = None
+        self,
+        u: np.ndarray,
+        p: Tuple[int, int, int],
+        slope_limiter: str = None,
+        timer_prefix: str = "",
     ) -> Tuple[float, Tuple[np.ndarray, np.ndarray, np.ndarray]]:
         """
         compute the Euler equation fluxes F, G, H with degree p polynomials. optionally apply slope limiting.
@@ -390,6 +385,7 @@ class EulerSolver(ODE):
             u (array_like) : cell-averages of conservative variables. has shape (5, nx, ny, nz)
             p (Tuple[int, int, int]) : polynomial interpolation degree (px, py, pz)
             limiter (str) : None, 'minmod', 'moncen'
+            timer_prefix (str) : prefix for timer categories
         returns:
             dt, (F, G, H) (tuple) : time-step size and numerical fluxes
                 dt (float) : time-step size
@@ -397,7 +393,9 @@ class EulerSolver(ODE):
                 G (array_like) : y-direction conservative fluxes. has shape (5, nx, ny + 1, nz)
                 H (array_like) : z-direction conservative fluxes. has shape (5, nx, ny, nz + 1)
         """
-        self.timer.start("hydrofluxes")
+        self.timer.start(f"{timer_prefix}hydrofluxes")
+
+        # determine if slope limiting is required
         if slope_limiter is None:
             limit_slopes = False
         elif max(p) <= 1:
@@ -442,7 +440,7 @@ class EulerSolver(ODE):
             dt = self.fixed_dt
 
         # perform conservative interpolation
-        self.timer.start("hydrofluxes/conservative_interpolation")
+        self.timer.start(f"{timer_prefix}conservative interpolation")
 
         # interpolate x face midpoints
         if self.xdim:
@@ -492,10 +490,10 @@ class EulerSolver(ODE):
                     w_z, p=p[2], axis=3, pos="r"
                 )
 
-        self.timer.stop("hydrofluxes/conservative_interpolation")
+        self.timer.stop(f"{timer_prefix}conservative interpolation")
 
         # pointwise numerical fluxes
-        self.timer.start("hydrofluxes/riemann_solver")
+        self.timer.start(f"{timer_prefix}riemann solver")
         if self.xdim:
             f_face_center = self.riemann_solver(
                 wl=w_x_face_center_r[:, :-1, ...],
@@ -520,7 +518,7 @@ class EulerSolver(ODE):
                 dim="z",
                 csq_floor=self.csq_floor,
             )
-        self.timer.stop("hydrofluxes/riemann_solver")
+        self.timer.stop(f"{timer_prefix}riemann solver")
 
         # excess ghost zone counts after flux integral
         x_excess = (
@@ -543,7 +541,7 @@ class EulerSolver(ODE):
         )
 
         # flux integrals
-        self.timer.start("hydrofluxes/transverse_reconstruction")
+        self.timer.start(f"{timer_prefix}transverse reconstruction")
         if self.xdim:
             F = transverse_reconstruction(
                 transverse_reconstruction(f_face_center, axis=2, p=p[1]), axis=3, p=p[2]
@@ -562,8 +560,8 @@ class EulerSolver(ODE):
             )[tuple(slice(z_excess[i] or None, -z_excess[i] or None) for i in range(4))]
         else:
             H = self.am("H")
-        self.timer.stop("hydrofluxes/transverse_reconstruction")
-        self.timer.stop("hydrofluxes")
+        self.timer.stop(f"{timer_prefix}transverse reconstruction")
+        self.timer.stop(f"{timer_prefix}hydrofluxes")
         return dt, (F, G, H)
 
     def revise_fluxes(
@@ -587,6 +585,8 @@ class EulerSolver(ODE):
         returns:
             None : revise fluxes in place
         """
+        self.timer.start("(fallback scheme)")
+
         # compute candidate solution
         ustar = u + dt * self.euler_equation(F=F, G=G, H=H)
 
@@ -600,7 +600,7 @@ class EulerSolver(ODE):
         w_star = self.interpolate_primitives_from_conservatives(ustar, p=self.p, gw=gw)
 
         # detect troubled cells
-        self.timer.start("revise_fluxes/detect_troubled_cells")
+        self.timer.start("(fallback scheme) troubled cell detection")
         troubled_cells, NAD_mag, PAD_mag = detect_troubled_cells(
             u=w,
             u_candidate=w_star,
@@ -614,39 +614,35 @@ class EulerSolver(ODE):
             SED_eps=self.SED_tolerance,
             xp={True: "cupy", False: "numpy"}[self.am.using_cupy],
         )
-        self.timer.stop("revise_fluxes/detect_troubled_cells")
+        self.timer.stop("(fallback scheme) troubled cell detection")
         if force_trouble:
             troubled_cells = np.ones_like(troubled_cells, dtype=bool)
 
         self.log_troubles(troubled_cells, NAD_mag, PAD_mag)
 
-        if not np.any(troubled_cells):
-            # great, no troubled cells!
-            return
+        if np.any(troubled_cells):
+            # p=1, slope-limited fluxes
+            _, (Fl, Gl, Hl) = self.hydrofluxes(
+                u=u,
+                p=(int(self.p[0] > 0), int(self.p[1] > 0), int(self.p[2] > 0)),
+                slope_limiter=self.slope_limiter,
+                timer_prefix="(fallback scheme) ",
+            )
 
-        # p=1, slope-limited fluxes
-        self.timer.start("revise_fluxes/hydrofluxes")
-        _, (Fl, Gl, Hl) = self.hydrofluxes(
-            u=u,
-            p=(int(self.p[0] > 0), int(self.p[1] > 0), int(self.p[2] > 0)),
-            slope_limiter=self.slope_limiter,
-        )
-        self.timer.stop("revise_fluxes/hydrofluxes")
-        self.timer.start("revise_fluxes/broadcast_to_troubled_interfaces")
-        troubled_x, troubled_y, troubled_z = broadcast_to_troubled_interfaces(
-            troubled_cells,
-            dims=self.dims,
-            convex=self.convex,
-            periodic_x=self.bc.x == ("periodic", "periodic"),
-            periodic_y=self.bc.y == ("periodic", "periodic"),
-            periodic_z=self.bc.z == ("periodic", "periodic"),
-            xp={True: "cupy", False: "numpy"}[self.am.using_cupy],
-        )
-        self.timer.stop("revise_fluxes/broadcast_to_troubled_interfaces")
-
-        self.am("F")[...] = (1 - troubled_x) * F + troubled_x * Fl
-        self.am("G")[...] = (1 - troubled_y) * G + troubled_y * Gl
-        self.am("H")[...] = (1 - troubled_z) * H + troubled_z * Hl
+            # get mask for troubled interfaces
+            troubled_x, troubled_y, troubled_z = broadcast_to_troubled_interfaces(
+                troubled_cells,
+                dims=self.dims,
+                convex=self.convex,
+                periodic_x=self.bc.x == ("periodic", "periodic"),
+                periodic_y=self.bc.y == ("periodic", "periodic"),
+                periodic_z=self.bc.z == ("periodic", "periodic"),
+                xp={True: "cupy", False: "numpy"}[self.am.using_cupy],
+            )
+            self.am("F")[...] = (1 - troubled_x) * F + troubled_x * Fl
+            self.am("G")[...] = (1 - troubled_y) * G + troubled_y * Gl
+            self.am("H")[...] = (1 - troubled_z) * H + troubled_z * Hl
+        self.timer.stop("(fallback scheme)")
 
     def euler_equation(self, F: np.ndarray, G: np.ndarray, H: np.ndarray) -> np.ndarray:
         """
@@ -695,22 +691,18 @@ class EulerSolver(ODE):
             interp_cost_y = get_stencil_size(p[1])
             interp_cost_z = get_stencil_size(p[2])
         gw = (gw[0] + interp_cost_x, gw[1] + interp_cost_y, gw[2] + interp_cost_z)
-        self.timer.start("bc")
+        self.timer.start("boundary conditions")
         u_bc = self.bc.apply(u, gw=gw, t=self.t)
-        self.timer.stop("bc")
-        self.timer.start("interpolate_cell_centers")
+        self.timer.stop("boundary conditions")
         u_cell_centers = interpolate_cell_centers(u_bc, p=p)
-        self.timer.stop("interpolate_cell_centers")
         w_cell_centers = compute_primitives(u_cell_centers, gamma=self.gamma)
         if self.fixed_primitive_variables is not None and self.t > 0:
             w0_cell_centers = self.w0_cell_centers_cache.get(f"{gw=}, {p=}", None)
             if w0_cell_centers is None:
-                self.timer.start("bc")
+                self.timer.start("boundary conditions")
                 u0_bc = self.bc.apply(self.am("u0"), gw=gw, t=0)
-                self.timer.stop("bc")
-                self.timer.start("interpolate_cell_centers")
+                self.timer.stop("boundary conditions")
                 u0_cell_centers = interpolate_cell_centers(u0_bc, p=p)
-                self.timer.stop("interpolate_cell_centers")
                 w0_cell_centers = compute_primitives(u0_cell_centers, gamma=self.gamma)
                 self.w0_cell_centers_cache[f"{gw=}, {p=}"] = w0_cell_centers
             for var in self.fixed_primitive_variables:
@@ -771,7 +763,6 @@ class EulerSolver(ODE):
         """
         log a dictionary
         """
-        self.timer.start("snapshot")
         # fv conservatives to fv primitives
         self.am("w")[...] = self.interpolate_primitives_from_conservatives(
             u=self.am("u"),
@@ -803,8 +794,6 @@ class EulerSolver(ODE):
 
         if self.snapshot_helper_function is not None:
             self.snapshot_helper_function(self)
-
-        self.timer.stop("snapshot")
 
     def read_snapshots(self) -> bool:
         """
@@ -878,6 +867,10 @@ class EulerSolver(ODE):
         attrs_to_save = {key: attrs_to_save[key] for key in sorted_keys}
         with open(os.path.join(snapshot_dir, "attrs.json"), "w") as f:
             json.dump(attrs_to_save, f, indent=4)
+
+        # generate timing report
+        with open(os.path.join(snapshot_dir, "timing.txt"), "w") as f:
+            f.write(self.timer.report())
 
         print(f"Wrote to snapshot directory {snapshot_dir}")
 

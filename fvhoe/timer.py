@@ -1,27 +1,41 @@
-from dataclasses import dataclass
 import numpy as np
 import time
-from typing import Iterable
+from typing import Iterable, Union
 
 
-@dataclass
 class Timer:
     """
-    Timer which allows you to start and stop different categories simultaneously
-    args:
-        cats (Iterable[str]) : series of named timer categories as strings
-        precision (int) : number of decimal places to round time in to_dict method
+    Multi-category timer
     """
 
-    cats: Iterable[str] = ()
-    precision: int = 2
+    def __init__(self, cats: Union[str, Iterable[str]] = (), precision: int = 2):
+        """
+        args:
+            cats (Union[str, Iterable[str]]) : category or series of categories to time
+            precision (int) : number of decimal places to round time in to_dict method
+        """
+        self.cats = ()
+        self._start_time = {}
+        self.cum_times = {}
+        self.add_cat(cats)
+        self.precision = precision
 
-    def __post_init__(self):
-        self._is_timed = {cat: False for cat in self.cats}
-        self._start_times = {cat: 0.0 for cat in self.cats}
-        self.cum_times = {cat: 0.0 for cat in self.cats}
+    def add_cat(self, cat: Union[str, Iterable[str]]):
+        """
+        Add a new timer category
+        args:
+            cat (Union[str, Iterable[str]]) : category or series of categories
+        """
+        if isinstance(cat, str):
+            cat = (cat,)
+        for c in cat:
+            if c in self.cats:
+                raise ValueError(f"Category '{c}' already exists.")
+            self.cats = (*self.cats, c)
+            self._start_time[c] = None
+            self.cum_times[c] = 0.0
 
-    def check_cat_existance(self, cat: str):
+    def check_cat_existence(self, cat: str):
         """
         Check if timer category exists
         args:
@@ -36,13 +50,12 @@ class Timer:
         args:
             cat (str) : category
         """
-        self.check_cat_existance(cat)
-        if self._is_timed[cat]:
+        self.check_cat_existence(cat)
+        if self._start_time[cat] is not None:
             raise RuntimeError(
-                f"Cannot start '{cat}' timer which is already in progress."
+                f"Cannot start '{cat}' timer since it is already in progress."
             )
-        self._is_timed[cat] = True
-        self._start_times[cat] = time.time()
+        self._start_time[cat] = time.time()
 
     def stop(self, cat: str):
         """
@@ -50,12 +63,47 @@ class Timer:
         args:
             cat (str) : category
         """
-        self.check_cat_existance(cat)
-        if not self._is_timed[cat]:
-            raise RuntimeError(f"Cannot stop '{cat}' timer which is not in progress.")
-        self._is_timed[cat] = False
-        self.cum_times[cat] += time.time() - self._start_times[cat]
+        self.check_cat_existence(cat)
+        if self._start_time[cat] is None:
+            raise RuntimeError(
+                f"Cannot stop '{cat}' timer since it is not in progress."
+            )
+        self.cum_times[cat] += time.time() - self._start_time[cat]
+        self._start_time[cat] = None
 
     def to_dict(self) -> dict:
         out = {cat: np.round(t, self.precision) for cat, t in self.cum_times.items()}
         return out
+
+    def report(self) -> str:
+        """
+        Return a formatted string report of the cumulative times for all categories
+        with dynamic column width based on both category name length and time values.
+        """
+        # name headers
+        cat_header = "Category"
+        time_header = "Time (s)"
+
+        # Determine the max length of the category names and the time values
+        max_cat_len = (
+            max(len(cat) for cat in self.cats) if self.cats else len(cat_header)
+        )
+        max_time_len = max(
+            (
+                max(len(f"{t:.{self.precision}f}") for t in self.cum_times.values())
+                if self.cum_times
+                else len(time_header)
+            ),
+            len(time_header),
+        )
+
+        # Build the report as a string with dynamically sized columns
+        report_str = f"{cat_header:<{max_cat_len}} {time_header:<{max_time_len}}\n"
+        report_str += "-" * (max_cat_len + max_time_len + 1) + "\n"
+
+        # Add each category and time, formatted to the correct precision and width
+        for cat, t in self.cum_times.items():
+            time_str = f"{t:.{self.precision}f}"
+            report_str += f"{cat:<{max_cat_len}} {time_str:>{max_time_len}}\n"
+
+        return report_str

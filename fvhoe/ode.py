@@ -1,9 +1,9 @@
 from abc import ABC, abstractmethod
 from fvhoe.array_manager import ArrayManager
+from fvhoe.timer import Timer
 import numpy as np
 import os
 import subprocess
-import time
 from tqdm import tqdm
 from typing import Any, Tuple
 
@@ -45,11 +45,14 @@ class ODE(ABC):
             self.am.enable_cupy()
         self.am.add("u", u0)
 
+        # timer
+        self.timer = Timer(cats=["INTEGRATE", "SNAPSHOTS"])
+
         # snapshots
         self.snapshots = []
         self.snapshot_times = []
 
-        # progress bar
+        # progress barr
         self.print_progress_bar = True if progress_bar else False
 
         # git commit details
@@ -112,12 +115,16 @@ class ODE(ABC):
 
         # if given n, perform a simple time evolution
         if predetermined_step_count:
+            self.timer.start("INTEGRATE")
+            self.timer.start("SNAPSHOTS")
             self.snapshot()
-            clock_start = time.time()
+            self.timer.stop("SNAPSHOTS")
             for _ in tqdm(range(n)):
                 self.take_step()
-            self.execution_time = time.time() - clock_start
+            self.timer.start("SNAPSHOTS")
             self.snapshot()
+            self.timer.stop("SNAPSHOTS")
+            self.timer.stop("INTEGRATE")
             return
 
         # if save is True, try to read snapshots
@@ -146,16 +153,18 @@ class ODE(ABC):
         self.snapshot()
 
         # simulation loop
-        clock_start = time.time()
+        self.timer.start("INTEGRATE")
         while self.t < T:
             self.take_step(target_time=target_time)
             self.progress_bar_action(action="update")
             # target time actions
             if self.t == target_time or self.t >= T or log_every_step:
+                self.timer.start("SNAPSHOTS")
                 self.snapshot()
+                self.timer.stop("SNAPSHOTS")
                 if downbeats and self.t == target_time:
                     target_time = downbeats.pop(0)
-        self.execution_time = time.time() - clock_start
+        self.timer.stop("INTEGRATE")
 
         # clean up progress bar
         self.progress_bar_action(action="cleanup")
