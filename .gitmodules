@@ -1,3 +1,4 @@
 [submodule "spd"]
 	path = spd
 	url = git@github.com:jpalafou/spd.git
+	branch = jp
