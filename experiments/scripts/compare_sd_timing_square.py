@@ -4,14 +4,15 @@ from fvhoe.solver import EulerSolver
 import os
 import numpy as np
 import pandas as pd
+import sys
 
 # experiment params
-n_dims = 2
-n_steps = 100
+n_dims = 3
+n_steps = 1
 if n_dims == 1:
-    DOFss = 2 ** np.arange(3, 23)
+    DOFss = 2 ** np.arange(3, 25)
 elif n_dims == 2:
-    DOFss = 2 ** np.arange(3, 10)
+    DOFss = 2 ** np.arange(3, 13)
 elif n_dims == 3:
     DOFss = 2 ** np.arange(3, 8)
 ps = [1, 3, 7]
@@ -25,11 +26,8 @@ numpy_DOFs_max = 128**2
 include_sd = True
 first_order_integrator = True
 
-# import sd if necessary
+# add spd to path
 if include_sd:
-    import os
-    import sys
-
     spd_path = os.path.abspath(
         os.path.join(os.path.dirname(__file__), "..", "..", "spd", "src")
     )
@@ -91,6 +89,12 @@ for DOFs, p, slope_limiting, cupy in product(DOFss, ps, slope_limitings, cupys):
             total_time=fv.timer.cum_time["TOTAL"],
             riemann_time=fv.timer.cum_time["(high-order) riemann solver"]
             + fv.timer.cum_time["(fallback scheme) riemann solver"],
+            interpolation_time=fv.timer.cum_time[
+                "(high-order) conservative interpolation"
+            ]
+            + fv.timer.cum_time["(high-order) transverse reconstruction"]
+            + fv.timer.cum_time["(fallback scheme) conservative interpolation"]
+            + fv.timer.cum_time["(fallback scheme) transverse reconstruction"],
         )
     )
 
@@ -127,6 +131,7 @@ for DOFs, p, slope_limiting, cupy in product(DOFss, ps, slope_limitings, cupys):
                 total_time=sd.timer.cum_time["TOTAL"],
                 riemann_time=sd.timer.cum_time["(sd) riemann solver"]
                 + sd.timer.cum_time["(fv) riemann solver"],
+                interpolation_time=sd.timer.cum_time["(sd) interpolate"],
             )
         )
 

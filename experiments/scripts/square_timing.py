@@ -1,5 +1,9 @@
+import cProfile
+import pstats
+import io
 from fvhoe.initial_conditions import square
 from fvhoe.solver import EulerSolver
+from pstats import SortKey
 
 ndim = 2
 N = 2048
@@ -19,5 +23,15 @@ fv = EulerSolver(
     CFL=0.01,
     cupy=cupy,
 )
+
+pr = cProfile.Profile()
+pr.enable()
+
 fv.euler(n=n_steps)
-print(f"t={fv.t}, steps taken {fv.step_count}, time taken {fv.execution_time}")
+
+pr.disable()
+s = io.StringIO()
+sortby = SortKey.CUMULATIVE
+ps = pstats.Stats(pr, stream=s).sort_stats(sortby)
+ps.print_stats()
+print(s.getvalue())

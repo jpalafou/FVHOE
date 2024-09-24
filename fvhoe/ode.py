@@ -115,16 +115,16 @@ class ODE(ABC):
 
         # if given n, perform a simple time evolution
         if predetermined_step_count:
-            self.timer.start("TOTAL")
             self.timer.start("SNAPSHOTS")
             self.snapshot()
             self.timer.stop("SNAPSHOTS")
+            self.timer.start("TOTAL")
             for _ in tqdm(range(n)):
                 self.take_step()
+            self.timer.stop("TOTAL")
             self.timer.start("SNAPSHOTS")
             self.snapshot()
             self.timer.stop("SNAPSHOTS")
-            self.timer.stop("TOTAL")
             return
 
         # if save is True, try to read snapshots
