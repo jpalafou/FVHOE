@@ -55,7 +55,7 @@ def test_interpolation_symmetry(transformation: callable, p: int, N: int = 128):
     """
     X, Y, Z = fv_uniform_meshgen((N, N, N))
     R = np.sqrt((X - 0.5) ** 2 + (Y - 0.5) ** 2 + (Z - 0.5) ** 2)
-    data1 = np.where(R < 0.25, 1, 0)[np.newaxis, ...]
+    data1 = np.where(R < 0.25, 1, 0).astype(float)[np.newaxis, ...]
     data2 = transformation(data1, p=(p, p, p))
     M = N - 2 * (-(-p // 2))
     assert l1err(data2[:, : M // 2, :, :], data2[:, : M // 2 - 1 : -1, :, :]) < 1e-15

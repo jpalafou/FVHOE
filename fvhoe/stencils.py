@@ -47,7 +47,7 @@ def get_conservative_interpolation_stencil_weights(p: int, pos: str) -> np.ndarr
             out = np.array([1], dtype=np.float64)
         case 1:
             if pos == "l":
-                out = np.array([1 / 4, 1, -1 / 4])
+                out = np.array([1 / 4, 1, -1 / 4], dtype=np.float64)
             elif pos == "c":
                 out = np.array([0, 1, 0], dtype=np.float64)
         case 2:
