@@ -18,7 +18,7 @@ def compute_1d_smooth_extrema_detector(
 
     # define slicing function
     axis = {"x": 1, "y": 2, "z": 3}[dim]
-    slices = get_symmetric_slices(3, u.ndim, axis)
+    slices = get_symmetric_slices(u.ndim, 3, axis)
 
     # get slopes
     dU = second_order_central_difference(u, axis)

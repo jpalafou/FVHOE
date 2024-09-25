@@ -1,3 +1,4 @@
+from dataclasses import dataclass, field
 from functools import lru_cache
 import numpy as np
 from typing import Tuple, Union
@@ -12,12 +13,12 @@ except Exception:
 VARIABLE_IDX_MAP = {
     "rho": 0,
     "P": 1,
-    "vx": 2,
-    "vy": 3,
-    "vz": 4,
     "E": 1,
+    "vx": 2,
     "mx": 2,
+    "vy": 3,
     "my": 3,
+    "vz": 4,
     "mz": 4,
 }
 
@@ -84,16 +85,14 @@ def get_array_slice(
     return tuple(slices)
 
 
+@dataclass
 class ArrayManager:
     """
     Class to manage arrays and their conversion between NumPy and CuPy.
     """
 
-    def __init__(
-        self,
-    ):
-        self.arrays = {}
-        self.using_cupy = False
+    arrays: dict = field(default_factory=dict)
+    using_cupy: bool = False
 
     def __repr__(self) -> str:
         return f"ArrayManager({self.arrays.keys()})"

@@ -1,6 +1,10 @@
 from itertools import product
 from functools import lru_cache
 from fvhoe.array_manager import get_array_slice as slc
+from fvhoe.stencils import (
+    get_conservative_interpolation_stencil_weights,
+    get_transverse_reconstruction_stencil_weights,
+)
 import numpy as np
 from typing import Tuple
 
@@ -82,41 +86,59 @@ def fv_uniform_meshgen(
 
 
 @lru_cache(maxsize=100)
-def get_symmetric_slices(nslices: int, ndim: int, axis: int) -> list:
+def get_symmetric_slices(ndim: int, nslices: int, axis: int) -> list:
     """
     generate a list of symmetric slices
     args:
-        nslices (int) : number of slices
         ndim (int) : number of dimensions of the sliced array
+        nslices (int) : number of slices
         axis (int) : axis along which to slice
     returns:
         out (list) : list of slices from "left to right" along axis
     """
     if nslices < 1:
         raise ValueError(f"{nslices=}")
-    return [
+    out = [
         slc(ndim=ndim, axis=axis, cut=(i, -(nslices - 1) + i)) for i in range(nslices)
     ]
+    return out
 
 
-@lru_cache(maxsize=100)
-def get_stencil_size(p: int, mode: str = "right") -> int:
+def stencil_sweep(
+    u: np.ndarray, mode: str, p: int, axis: int, pos: str = None
+) -> np.ndarray:
     """
-    get the size of a stencil for a given polynomial degree
     args:
-        p (int) : polynomial degree
+        u (array_like) : array of finite volume cell averages of arbitrary shape
         mode (str) : stencil mode
-            "total" : total number of points in the stencil
-            "right" : number of points to the right of the center
+            "interpolation" : conservative interpolation
+            "reconstruction" : transverse reconstruction
+        p (int) : polynomial degree of conservative interpolation
+        axis (int) : along which to interpolate
+        pos (str) : interpolation position along finite volume
+            "l" left
+            "c" center
+            "r" right
     returns:
-        int : size of the stencil
+        out (array_like) : array of interpolations/reconstructions
     """
-    if mode == "total":
-        return -2 * (-p // 2) + 1
-    elif mode == "right":
-        return -(-p // 2)
+    if mode == "interpolation":
+        weights = get_conservative_interpolation_stencil_weights(p=p, pos=pos)
+    elif mode == "reconstruction":
+        weights = get_transverse_reconstruction_stencil_weights(p=p)
     else:
         raise ValueError(f"{mode=}")
+
+    # get slices
+    slices = get_symmetric_slices(u.ndim, len(weights), axis)
+
+    # Pre-allocate output array with the same shape as u
+    out = np.zeros_like(u[slices[0]])
+
+    # Efficient summation loop
+    for w, s in zip(weights, slices):
+        np.add(out, w * u[s], out=out)  # Accumulate in place to save memory
+    return out
 
 
 def conservative_interpolation(
@@ -134,158 +156,7 @@ def conservative_interpolation(
     returns:
         out (array_like) : array of interpolations
     """
-    slices = get_symmetric_slices(get_stencil_size(p, mode="total"), u.ndim, axis)
-
-    if pos == "r":
-        return conservative_interpolation(
-            u=u[slc(ndim=u.ndim, axis=axis, cut=(0, 0), step=-1)],
-            p=p,
-            axis=axis,
-            pos="l",
-        )[slc(ndim=u.ndim, axis=axis, cut=(0, 0), step=-1)]
-
-    match p:
-        case 0:
-            out = u.copy()
-        case 1:
-            if pos == "l":
-                out = (1 * u[slices[0]] + 4 * u[slices[1]] + -1 * u[slices[2]]) / 4
-            elif pos == "c":
-                out = (0 * u[slices[0]] + 1 * u[slices[1]] + 0 * u[slices[2]]) / 1
-        case 2:
-            if pos == "l":
-                out = (2 * u[slices[0]] + 5 * u[slices[1]] + -1 * u[slices[2]]) / 6
-            elif pos == "c":
-                out = (-1 * u[slices[0]] + 26 * u[slices[1]] + -1 * u[slices[2]]) / 24
-        case 3:
-            if pos == "l":
-                out = (
-                    -1 * u[slices[0]]
-                    + 10 * u[slices[1]]
-                    + 20 * u[slices[2]]
-                    + -6 * u[slices[3]]
-                    + 1 * u[slices[4]]
-                ) / 24
-            elif pos == "c":
-                out = (
-                    0 * u[slices[0]]
-                    + -1 * u[slices[1]]
-                    + 26 * u[slices[2]]
-                    + -1 * u[slices[3]]
-                    + 0 * u[slices[4]]
-                ) / 24
-        case 4:
-            if pos == "l":
-                out = (
-                    -3 * u[slices[0]]
-                    + 27 * u[slices[1]]
-                    + 47 * u[slices[2]]
-                    + -13 * u[slices[3]]
-                    + 2 * u[slices[4]]
-                ) / 60
-            elif pos == "c":
-                out = (
-                    9 * u[slices[0]]
-                    + -116 * u[slices[1]]
-                    + 2134 * u[slices[2]]
-                    + -116 * u[slices[3]]
-                    + 9 * u[slices[4]]
-                ) / 1920
-        case 5:
-            if pos == "l":
-                out = (
-                    (1 / 120) * u[slices[0]]
-                    + (-1 / 12) * u[slices[1]]
-                    + (59 / 120) * u[slices[2]]
-                    + (47 / 60) * u[slices[3]]
-                    + (-31 / 120) * u[slices[4]]
-                    + (1 / 15) * u[slices[5]]
-                    + (-1 / 120) * u[slices[6]]
-                )
-            elif pos == "c":
-                out = (
-                    0 * u[slices[0]]
-                    + (3 / 640) * u[slices[1]]
-                    + (-29 / 480) * u[slices[2]]
-                    + (1067 / 960) * u[slices[3]]
-                    + (-29 / 480) * u[slices[4]]
-                    + (3 / 640) * u[slices[5]]
-                    + 0 * u[slices[6]]
-                )
-        case 6:
-            if pos == "l":
-                out = (
-                    (1 / 105) * u[slices[0]]
-                    + (-19 / 210) * u[slices[1]]
-                    + (107 / 210) * u[slices[2]]
-                    + (319 / 420) * u[slices[3]]
-                    + (-101 / 420) * u[slices[4]]
-                    + (5 / 84) * u[slices[5]]
-                    + (-1 / 140) * u[slices[6]]
-                )
-            elif pos == "c":
-                out = (
-                    (-5 / 7168) * u[slices[0]]
-                    + (159 / 17920) * u[slices[1]]
-                    + (-7621 / 107520) * u[slices[2]]
-                    + (30251 / 26880) * u[slices[3]]
-                    + (-7621 / 107520) * u[slices[4]]
-                    + (159 / 17920) * u[slices[5]]
-                    + (-5 / 7168) * u[slices[6]]
-                )
-        case 7:
-            if pos == "l":
-                out = (
-                    (-1 / 560) * u[slices[0]]
-                    + (17 / 840) * u[slices[1]]
-                    + (-97 / 840) * u[slices[2]]
-                    + (449 / 840) * u[slices[3]]
-                    + (319 / 420) * u[slices[4]]
-                    + (-223 / 840) * u[slices[5]]
-                    + (71 / 840) * u[slices[6]]
-                    + (-1 / 56) * u[slices[7]]
-                    + (1 / 560) * u[slices[8]]
-                )
-            elif pos == "c":
-                out = (
-                    0 * u[slices[0]]
-                    + (-5 / 7168) * u[slices[1]]
-                    + (159 / 17920) * u[slices[2]]
-                    + (-7621 / 107520) * u[slices[3]]
-                    + (30251 / 26880) * u[slices[4]]
-                    + (-7621 / 107520) * u[slices[5]]
-                    + (159 / 17920) * u[slices[6]]
-                    + (-5 / 7168) * u[slices[7]]
-                    + 0 * u[slices[8]]
-                )
-        case 8:
-            if pos == "l":
-                out = (
-                    (-1 / 504) * u[slices[0]]
-                    + (11 / 504) * u[slices[1]]
-                    + (-61 / 504) * u[slices[2]]
-                    + (275 / 504) * u[slices[3]]
-                    + (1879 / 2520) * u[slices[4]]
-                    + (-641 / 2520) * u[slices[5]]
-                    + (199 / 2520) * u[slices[6]]
-                    + (-41 / 2520) * u[slices[7]]
-                    + (1 / 630) * u[slices[8]]
-                )
-            elif pos == "c":
-                out = (
-                    (35 / 294912) * u[slices[0]]
-                    + (-425 / 258048) * u[slices[1]]
-                    + (31471 / 2580480) * u[slices[2]]
-                    + (-100027 / 1290240) * u[slices[3]]
-                    + (5851067 / 5160960) * u[slices[4]]
-                    + (-100027 / 1290240) * u[slices[5]]
-                    + (31471 / 2580480) * u[slices[6]]
-                    + (-425 / 258048) * u[slices[7]]
-                    + (35 / 294912) * u[slices[8]]
-                )
-        case _:
-            raise NotImplementedError(f"{p=}")
-
+    out = stencil_sweep(u=u, mode="interpolation", p=p, axis=axis, pos=pos)
     return out
 
 
@@ -298,79 +169,7 @@ def transverse_reconstruction(u: np.ndarray, p: int, axis: int) -> np.ndarray:
     returns:
         out (array_like) : array of interpolations of flux integrals
     """
-
-    slices = get_symmetric_slices(get_stencil_size(p, mode="total"), u.ndim, axis)
-
-    match p:
-        case 0:
-            out = u.copy()
-        case 1:
-            out = (0 * u[slices[0]] + 1 * u[slices[1]] + 0 * u[slices[2]]) / 1
-        case 2:
-            out = (1 * u[slices[0]] + 22 * u[slices[1]] + 1 * u[slices[2]]) / 24
-        case 3:
-            out = (
-                0 * u[slices[0]]
-                + 1 * u[slices[1]]
-                + 22 * u[slices[2]]
-                + 1 * u[slices[3]]
-                + 0 * u[slices[4]]
-            ) / 24
-        case 4:
-            out = (
-                -17 * u[slices[0]]
-                + 308 * u[slices[1]]
-                + 5178 * u[slices[2]]
-                + 308 * u[slices[3]]
-                + -17 * u[slices[4]]
-            ) / 5760
-        case 5:
-            out = (
-                0 * u[slices[0]]
-                + -17 * u[slices[1]]
-                + 308 * u[slices[2]]
-                + 5178 * u[slices[3]]
-                + 308 * u[slices[4]]
-                + -17 * u[slices[5]]
-                + 0 * u[slices[6]]
-            ) / 5760
-        case 6:
-            out = (
-                (367 / 967680) * u[slices[0]]
-                + (-281 / 53760) * u[slices[1]]
-                + (6361 / 107520) * u[slices[2]]
-                + (215641 / 241920) * u[slices[3]]
-                + (6361 / 107520) * u[slices[4]]
-                + (-281 / 53760) * u[slices[5]]
-                + (367 / 967680) * u[slices[6]]
-            )
-        case 7:
-            out = (
-                0 * u[slices[0]]
-                + (367 / 967680) * u[slices[1]]
-                + (-281 / 53760) * u[slices[2]]
-                + (6361 / 107520) * u[slices[3]]
-                + (215641 / 241920) * u[slices[4]]
-                + (6361 / 107520) * u[slices[5]]
-                + (-281 / 53760) * u[slices[6]]
-                + (367 / 967680) * u[slices[7]]
-                + 0 * u[slices[8]]
-            )
-        case 8:
-            out = (
-                (-27859 / 464486400) * u[slices[0]]
-                + (49879 / 58060800) * u[slices[1]]
-                + (-801973 / 116121600) * u[slices[2]]
-                + (3629953 / 58060800) * u[slices[3]]
-                + (41208059 / 46448640) * u[slices[4]]
-                + (3629953 / 58060800) * u[slices[5]]
-                + (-801973 / 116121600) * u[slices[6]]
-                + (49879 / 58060800) * u[slices[7]]
-                + (-27859 / 464486400) * u[slices[8]]
-            )
-        case _:
-            raise NotImplementedError(f"{p=}")
-
+    out = stencil_sweep(u=u, mode="reconstruction", p=p, axis=axis)
     return out
 
 
@@ -491,7 +290,7 @@ def second_order_central_difference(
     returns:
         out (array_like) : second order central difference of u. shorter than u by 2 along specified axis
     """
-    slices = get_symmetric_slices(3, u.ndim, axis)
+    slices = get_symmetric_slices(u.ndim, 3, axis)
     out = 0.5 * (u[slices[2]] - u[slices[0]])
     if h is not None:
         out /= h

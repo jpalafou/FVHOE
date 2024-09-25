@@ -31,7 +31,7 @@ def MUSCL_interpolations(
     returns:
         left_face, right_face (Tuple[np.ndarray, np.ndarray]) : MUSCL reconstructions
     """
-    slices = get_symmetric_slices(3, u.ndim, axis)
+    slices = get_symmetric_slices(u.ndim, 3, axis)
     du_left = u[slices[1]] - u[slices[0]]
     du_right = u[slices[2]] - u[slices[1]]
 

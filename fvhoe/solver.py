@@ -4,7 +4,6 @@ from fvhoe.fv import (
     conservative_interpolation,
     fv_average,
     fv_uniform_meshgen,
-    get_stencil_size,
     interpolate_cell_centers,
     interpolate_fv_averages,
     transverse_reconstruction,
@@ -18,6 +17,7 @@ from fvhoe.slope_limiting import (
     detect_troubled_cells,
     MUSCL_interpolations,
 )
+from fvhoe.stencils import get_stencil_size
 from fvhoe.visualization import plot_1d_slice, plot_2d_slice
 import inspect
 from itertools import product
