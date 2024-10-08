@@ -29,7 +29,7 @@ def EulerSolver_wrapper(
         ic (callable) : valid EulerSolver initial condition function
         bc (BoundaryCondition) : valid EulerSolver boundary condition object
         T (float) : simulation time
-        integrator (int) : integrator order. if -1, EulerSolver.rkorder() is used.
+        integrator (int) : integrator order. if -1, EulerSolver.run() is used.
         n_snapshots (int) : number of snapshots to record. must be at least 2 (start and stop).
         overwrite (bool) : if True, overwrite existing snapshots
         plot_kwargs (dict) : passed to density plot
@@ -89,7 +89,7 @@ def EulerSolver_wrapper(
     # run solver
     match integrator:
         case -1:
-            solver.rkorder(**integrator_config)
+            solver.run(**integrator_config)
         case 1:
             solver.euler(**integrator_config)
         case 2:

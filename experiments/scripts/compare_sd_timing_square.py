@@ -72,7 +72,7 @@ for DOFs, p, slope_limiting, cupy in product(DOFss, ps, slope_limitings, cupys):
     if first_order_integrator:
         fv.euler(n=n_steps)
     else:
-        fv.rkorder(n=n_steps)
+        fv.run(n=n_steps)
     data.append(
         dict(
             scheme="fv",

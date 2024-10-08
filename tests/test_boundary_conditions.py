@@ -212,8 +212,8 @@ def test_ic_bc(dim: str, p: int, N: int = 100, gamma: float = 1.4, T: float = 1.
     )
 
     # run solvers
-    solver_dirichlet.rkorder(T)
-    solver_ic.rkorder(T)
+    solver_dirichlet.run(T)
+    solver_ic.run(T)
 
     # compare solvers
     assert (

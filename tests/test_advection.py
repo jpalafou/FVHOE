@@ -42,7 +42,7 @@ def test_1d_advection_symmetry(f0: callable, p: int, N: int = 64, t: float = 1):
             progress_bar=False,
             fixed_dt=0.4 * advection_dt(h=1 / N, vx=1),
         )
-        solver.rkorder(t)
+        solver.run(t)
         solutions[dim] = solver
 
     xyerr = l2err(
@@ -92,7 +92,7 @@ def test_2d_advection_symmetry(p, N=32, t: float = 1):
             progress_bar=False,
             fixed_dt=0.4 * advection_dt(h=1 / N, vx=2, vy=1),
         )
-        solver.rkorder(t)
+        solver.run(t)
         solutions[dims] = solver
 
     xy_yz_err = l2err(
