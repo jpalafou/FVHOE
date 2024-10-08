@@ -24,7 +24,7 @@ solver = EulerSolver(
     snapshots_as_fv_averages=False,
     cupy=True,
 )
-solver.rkorder(1.5, downbeats=[0.2], snapshot_dir=snapshot_dir)
+solver.run(1.5, downbeats=[0.2], snapshot_dir=snapshot_dir)
 
 # plot in snapshot path
 fig, ax = plt.subplots()

@@ -1,0 +1,126 @@
+{
+    "a_posteriori_slope_limiting": false,
+    "am": {
+        "names": [
+            "u",
+            "w",
+            "mean trouble",
+            "mean NAD mag",
+            "mean PAD mag",
+            "F",
+            "G",
+            "H"
+        ],
+        "using_cupy": false
+    },
+    "bc": {
+        "x": [
+            "periodic",
+            "periodic"
+        ],
+        "y": [
+            "periodic",
+            "periodic"
+        ],
+        "z": [
+            "periodic",
+            "periodic"
+        ]
+    },
+    "CFL": 0.8,
+    "commit_details": {
+        "commit_hash": "ff1f0b15cfb183f3452a130e59da9a6f1672420c",
+        "author_name": "Jonathan Palafoutas",
+        "commit_date": "2024-09-25 12:29:16 -0400",
+        "branch_name": "main"
+    },
+    "conservative_ic": false,
+    "convex": false,
+    "csq_floor": 1e-10,
+    "density_floor": null,
+    "dims": "x",
+    "f_evaluation_count": 1500,
+    "fixed_dt": null,
+    "force_trouble": false,
+    "fv_ic": false,
+    "gamma": 1.6666666666666667,
+    "h": [
+        0.0078125,
+        1.0,
+        1.0
+    ],
+    "integrator": "rk4",
+    "n": [
+        128,
+        1,
+        1
+    ],
+    "NAD": 0.01,
+    "NAD_mode": "global",
+    "NAD_range": "relative",
+    "NAD_vars": null,
+    "ndim": 1,
+    "p": [
+        3,
+        0,
+        0
+    ],
+    "PAD": {
+        "rho": [
+            0.0,
+            "inf"
+        ],
+        "P": [
+            0.0,
+            "inf"
+        ]
+    },
+    "pressure_floor": null,
+    "print_progress_bar": true,
+    "riemann_solver_name": "llf",
+    "SED": true,
+    "SED_tolerance": 1e-10,
+    "slab_buffer_size": 30,
+    "slope_limiter": "minmod",
+    "snapshot_dir": "../output/square",
+    "snapshot_helper_function": null,
+    "snapshot_times": [
+        0.0,
+        1.0
+    ],
+    "snapshots_as_fv_averages": true,
+    "step_count": 375,
+    "t": 1.0,
+    "timer": {
+        "TOTAL": 1.42,
+        "SNAPSHOTS": 0.0,
+        "boundary conditions": 0.12,
+        "(high-order) hydrofluxes": 1.16,
+        "(high-order) riemann solver": 0.24,
+        "(high-order) conservative interpolation": 0.24,
+        "(high-order) transverse reconstruction": 0.07,
+        "(fallback scheme)": 0.0,
+        "(fallback scheme) troubled cell detection": 0.0,
+        "(fallback scheme) hydrofluxes": 0.0,
+        "(fallback scheme) riemann solver": 0.0,
+        "(fallback scheme) conservative interpolation": 0.0,
+        "(fallback scheme) transverse reconstruction": 0.0
+    },
+    "trouble_counter": 1,
+    "w0": "square",
+    "x_domain": [
+        0,
+        1
+    ],
+    "xdim": true,
+    "y_domain": [
+        0,
+        1
+    ],
+    "ydim": false,
+    "z_domain": [
+        0,
+        1
+    ],
+    "zdim": false
+}

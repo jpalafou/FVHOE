@@ -142,6 +142,76 @@ class EulerSolver(ODE):
         returns:
             EulerSolver object
         """
+        self.csq_floor = csq_floor
+        self.density_floor = density_floor
+        self.gamma = gamma
+        self.pressure_floor = pressure_floor
+        self.riemann_solver_name = riemann_solver
+        self.snapshot_helper_function = snapshot_helper_function
+        self.snapshots_as_fv_averages = snapshots_as_fv_averages
+
+        # call init functions
+        self._init_mesh(x, y, z, nx, ny, nz, px, py, pz, CFL, fixed_dt)
+        self._init_initial_conditions(w0, conservative_ic, fv_ic, progress_bar, cupy)
+        self._init_boundary_conditions(slab_buffer_size, bc, fv_ic)
+        self._init_slope_limiting(
+            a_posteriori_slope_limiting,
+            slope_limiter,
+            force_trouble,
+            NAD,
+            NAD_mode,
+            NAD_range,
+            NAD_vars,
+            PAD,
+            SED,
+            SED_tolerance,
+            convex,
+        )
+        self._init_array_allocation()
+
+        # configure riemann solver
+        match self.riemann_solver_name:
+            case "advection_upwind":
+                self.riemann_solver = advection_upwind
+            case "llf":
+                self.riemann_solver = llf
+            case "hllc":
+                self.riemann_solver = hllc
+            case _:
+                raise TypeError(f"Invalid Riemann solver {riemann_solver}")
+
+        # configure plotting functions
+        self.plot_1d_slice = lambda *args, **kwargs: plot_1d_slice(
+            self, *args, **kwargs
+        )
+        self.plot_2d_slice = lambda *args, **kwargs: plot_2d_slice(
+            self, *args, **kwargs
+        )
+
+        # configure timer categories
+        self.timer.add_cat(
+            [
+                "boundary conditions",
+                "(high-order) hydrofluxes",
+                "(high-order) riemann solver",
+                "(high-order) conservative interpolation",
+                "(high-order) transverse reconstruction",
+                "(fallback scheme)",
+                "(fallback scheme) troubled cell detection",
+                "(fallback scheme) hydrofluxes",
+                "(fallback scheme) riemann solver",
+                "(fallback scheme) conservative interpolation",
+                "(fallback scheme) transverse reconstruction",
+            ]
+        )
+
+    def _init_mesh(self, x, y, z, nx, ny, nz, px, py, pz, CFL, fixed_dt):
+        """
+        initialize mesh parameters
+        """
+
+        self.CFL = CFL
+        self.fixed_dt = fixed_dt
 
         # generate txyz mesh
         self.x_domain = x
@@ -170,58 +240,66 @@ class EulerSolver(ODE):
         if self.zdim:
             self.dims += "z"
         self.ndim = len(self.dims)
-        self.CFL = CFL
-        self.fixed_dt = fixed_dt
 
-        # physics
-        self.gamma = gamma
+    def _init_initial_conditions(self, w0, conservative_ic, fv_ic, progress_bar, cupy):
+        """
+        initialize initial conditions, integrator, and array manager
+        """
+        self.conservative_ic = conservative_ic
+        self.fv_ic = fv_ic
 
-        # riemann solver
-        self.riemann_solver_name = riemann_solver
-        match riemann_solver:
-            case "advection_upwind":
-                self.riemann_solver = advection_upwind
-            case "llf":
-                self.riemann_solver = llf
-            case "hllc":
-                self.riemann_solver = hllc
-            case _:
-                raise TypeError(f"Invalid Riemann solver {riemann_solver}")
-
-        # data management
-        self.snapshots_as_fv_averages = snapshots_as_fv_averages
-        self.snapshot_helper_function = snapshot_helper_function
-
-        # initial conditions
-        self.w0 = w0
-        if not {"x", "y", "z"}.issubset(inspect.signature(self.w0).parameters):
+        # check if w0 accepts x, y, z as arguments
+        if not {"x", "y", "z"}.issubset(inspect.signature(w0).parameters):
             raise ValueError(
                 "Initial condition function must accept x, y, z as arguments."
             )
-        if conservative_ic:
-            u0 = w0
-        else:
 
-            def u0(x, y, z):
-                return compute_conservatives(w0(x, y, z), gamma=self.gamma)
+        # function for computing primitives
+        self.w0 = w0
 
-        if fv_ic:
-            u0_fv = u0(x=self.X, y=self.Y, z=self.Z)
-        else:
-            u0_fv = fv_average(f=u0, x=self.X, y=self.Y, z=self.Z, h=self.h, p=self.p)
+        # function for computing conservatives
+        u0 = (
+            self.w0
+            if self.conservative_ic
+            else lambda x, y, z: compute_conservatives(
+                self.w0(x, y, z), gamma=self.gamma
+            )
+        )
+
+        # function for computing finite volume average conservatives
+        self.u0_fv = (
+            u0
+            if self.fv_ic
+            else lambda x, y, z: fv_average(f=u0, x=x, y=y, z=z, h=self.h, p=self.p)
+        )
+
+        # array of finite volume averages
+        u0_fv_arr = self.u0_fv(self.X, self.Y, self.Z)
 
         # inegrator class init
-        super().__init__(u0_fv, progress_bar=progress_bar, cupy=cupy)
-        self.allocate_arrays()
+        super().__init__(u0_fv_arr, progress_bar=progress_bar, cupy=cupy)
+
+        # initialize f evaluation count
+        self.f_evaluation_count = 0
+
+    def _init_boundary_conditions(self, slab_buffer_size, bc, fv_ic):
+        """
+        initialize boundary conditions
+        """
+        self.slab_buffer_size = slab_buffer_size
 
         # get slab coordinates for boundaries
         slab_buffer_sizes = (
-            slab_buffer_size if self.xdim else 0,
-            slab_buffer_size if self.ydim else 0,
-            slab_buffer_size if self.zdim else 0,
+            self.slab_buffer_size if self.xdim else 0,
+            self.slab_buffer_size if self.ydim else 0,
+            self.slab_buffer_size if self.zdim else 0,
         )
         _, slab_coords = fv_uniform_meshgen(
-            (nx, ny, nz), x=x, y=y, z=z, slab_thickness=slab_buffer_sizes
+            (self.n[0], self.n[1], self.n[2]),
+            x=self.x_domain,
+            y=self.y_domain,
+            z=self.z_domain,
+            slab_thickness=slab_buffer_sizes,
         )
 
         # define boundary conditions
@@ -246,24 +324,33 @@ class EulerSolver(ODE):
 
         # configure initial condition boundary conditions
         if "ic" in set(self.bc.x + self.bc.y + self.bc.z):
-            if fv_ic:
+            if self.fv_ic:
                 print(
                     "Warning: initial condition function returns finite volume averages and is being used to apply boundary conditions."
                 )
             for dim in "xyz":
                 if getattr(self.bc, dim)[0] == "ic":
-                    self.bc.reset_value(dim, "l", u0)
+                    self.bc.reset_value(dim, "l", self.u0_fv)
                 if getattr(self.bc, dim)[1] == "ic":
-                    self.bc.reset_value(dim, "r", u0)
+                    self.bc.reset_value(dim, "r", self.u0_fv)
 
-        # fixed velocity
-        self.fixed_primitive_variables = fixed_primitive_variables
-        if fixed_primitive_variables is not None:
-            raise NotImplementedError("fixed_primitive_variables")
-            self.am.add("u0", u0_fv)
-            self.w0_cell_centers_cache = {}
-
-        # slope limiting
+    def _init_slope_limiting(
+        self,
+        a_posteriori_slope_limiting,
+        slope_limiter,
+        force_trouble,
+        NAD,
+        NAD_mode,
+        NAD_range,
+        NAD_vars,
+        PAD,
+        SED,
+        SED_tolerance,
+        convex,
+    ):
+        """
+        initialize slope limiting parameters
+        """
         self.a_posteriori_slope_limiting = a_posteriori_slope_limiting
         self.slope_limiter = slope_limiter
         self.force_trouble = force_trouble
@@ -285,40 +372,7 @@ class EulerSolver(ODE):
         self.convex = convex
         self.trouble_counter = 1
 
-        # floors
-        self.density_floor = density_floor
-        self.pressure_floor = pressure_floor
-        self.csq_floor = csq_floor
-
-        # plotting functions
-        self.plot_1d_slice = lambda *args, **kwargs: plot_1d_slice(
-            self, *args, **kwargs
-        )
-        self.plot_2d_slice = lambda *args, **kwargs: plot_2d_slice(
-            self, *args, **kwargs
-        )
-
-        # configure timer categories
-        self.timer.add_cat(
-            [
-                "boundary conditions",
-                "(high-order) hydrofluxes",
-                "(high-order) riemann solver",
-                "(high-order) conservative interpolation",
-                "(high-order) transverse reconstruction",
-                "(fallback scheme)",
-                "(fallback scheme) troubled cell detection",
-                "(fallback scheme) hydrofluxes",
-                "(fallback scheme) riemann solver",
-                "(fallback scheme) conservative interpolation",
-                "(fallback scheme) transverse reconstruction",
-            ]
-        )
-
-        # misc
-        self.f_evaluation_count = 0
-
-    def allocate_arrays(self):
+    def _init_array_allocation(self):
         """
         allocate Numpy or CuPy arrays
         """
@@ -696,17 +750,6 @@ class EulerSolver(ODE):
         self.timer.stop("boundary conditions")
         u_cell_centers = interpolate_cell_centers(u_bc, p=p)
         w_cell_centers = compute_primitives(u_cell_centers, gamma=self.gamma)
-        if self.fixed_primitive_variables is not None and self.t > 0:
-            w0_cell_centers = self.w0_cell_centers_cache.get(f"{gw=}, {p=}", None)
-            if w0_cell_centers is None:
-                self.timer.start("boundary conditions")
-                u0_bc = self.bc.apply(self.am("u0"), gw=gw, t=0)
-                self.timer.stop("boundary conditions")
-                u0_cell_centers = interpolate_cell_centers(u0_bc, p=p)
-                w0_cell_centers = compute_primitives(u0_cell_centers, gamma=self.gamma)
-                self.w0_cell_centers_cache[f"{gw=}, {p=}"] = w0_cell_centers
-            for var in self.fixed_primitive_variables:
-                setattr(w_cell_centers, var, getattr(w0_cell_centers, var))
         if fv_average:
             w = interpolate_fv_averages(w_cell_centers, p=p)
         else:
@@ -874,20 +917,26 @@ class EulerSolver(ODE):
 
         print(f"Wrote to snapshot directory {snapshot_dir}")
 
-    def rkorder(self, *args, **kwargs):
+    def run(self, *args, **kwargs):
         """
-        chose Runge-Kutta method to match the spatial interpolation polynomial degree
+        solve forward in time using a Runge-Kutta method whose order matches the
+            chosen polynomial degree for the spatial discretization, up to RK4
+        args:
+            *args : arguments to pass to the Runge-Kutta method
+            **kwargs : keyword arguments to pass to the Runge-Kutta method
         """
-        p = max(self.p)
-        match p:
+        q = min(max(self.p), 3)
+        match q:
             case 0:
                 self.euler(*args, **kwargs)
             case 1:
                 self.ssprk2(*args, **kwargs)
             case 2:
                 self.ssprk3(*args, **kwargs)
-            case _:
+            case 3:
                 self.rk4(*args, **kwargs)
+            case _:
+                raise ValueError(f"Runge-Kutta method not implemented for {q=}")
 
     def plot_fields(self, **kwargs):
         if self.ndim == 1:

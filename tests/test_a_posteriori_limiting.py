@@ -99,7 +99,7 @@ def test_1d_symmetry(p: int, rs: str, limiting_config: dict, N: int = 100):
             a_posteriori_slope_limiting=True,
             **limiting_config,
         )
-        solver.rkorder(0.038)
+        solver.run(0.038)
         solutions[dim] = solver
 
     xyerr = l2err(
@@ -154,7 +154,7 @@ def test_2d_symmetry(p: int, rs: str, limiting_config: dict, N: int = 32):
             a_posteriori_slope_limiting=True,
             **limiting_config,
         )
-        solver.rkorder(0.3)
+        solver.run(0.3)
         solutions[dims] = solver
 
     xy_yz_err = l2err(

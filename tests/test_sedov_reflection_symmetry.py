@@ -62,8 +62,8 @@ def test_reflection_symmetry(dims: str, rs: str, p: int, N: int = 16):
     )
 
     # run solvers
-    solver_partial.rkorder(0.8)
-    solver_full.rkorder(0.8)
+    solver_partial.run(0.8)
+    solver_full.run(0.8)
 
     # check results
     w_partial = solver_partial.snapshots[-1]["w"]

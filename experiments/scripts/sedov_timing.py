@@ -45,7 +45,7 @@ for N, p, cupy in product(Ns, ps, cupys):
     )
 
     # run simulation
-    solver.rkorder(n=n)
+    solver.run(n=n)
 
     # add data
     current_data = dict(
