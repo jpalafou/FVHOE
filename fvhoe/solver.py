@@ -254,24 +254,31 @@ class EulerSolver(ODE):
                 "Initial condition function must accept x, y, z as arguments."
             )
 
-        # function for computing primitives
-        self.w0 = w0
+        # define the following initial condition functions (if possible)
+        #   w0(X, Y, Z) : pointwise primitive variables
+        #   u0(X, Y, Z) : pointwise conservative variables
+        #   u0_fv(X, Y, Z) : finite volume averages of conservative variables
 
-        # function for computing conservatives
-        u0 = (
-            self.w0
-            if self.conservative_ic
-            else lambda x, y, z: compute_conservatives(
-                self.w0(x, y, z), gamma=self.gamma
+        if self.conservative_ic and self.fv_ic:
+            self.w0 = NotImplemented
+            self.u0 = NotImplemented
+            self.u0_fv = w0
+        elif self.fv_ic:
+            raise ValueError(
+                "Can't have finite volume averages without conservative IC."
             )
-        )
-
-        # function for computing finite volume average conservatives
-        self.u0_fv = (
-            u0
-            if self.fv_ic
-            else lambda x, y, z: fv_average(f=u0, x=x, y=y, z=z, h=self.h, p=self.p)
-        )
+        else:
+            if self.conservative_ic:
+                self.w0 = NotImplemented
+                self.u0 = w0
+            else:
+                self.w0 = w0
+                self.u0 = lambda x, y, z: compute_conservatives(
+                    w0(x, y, z), gamma=self.gamma
+                )
+            self.u0_fv = lambda x, y, z: fv_average(
+                self.u0, x, y, z, h=self.h, p=self.p
+            )
 
         # array of finite volume averages
         u0_fv_arr = self.u0_fv(self.X, self.Y, self.Z)
@@ -324,15 +331,11 @@ class EulerSolver(ODE):
 
         # configure initial condition boundary conditions
         if "ic" in set(self.bc.x + self.bc.y + self.bc.z):
-            if self.fv_ic:
-                print(
-                    "Warning: initial condition function returns finite volume averages and is being used to apply boundary conditions."
-                )
             for dim in "xyz":
                 if getattr(self.bc, dim)[0] == "ic":
-                    self.bc.reset_value(dim, "l", self.u0_fv)
+                    self.bc.reset_value(dim, "l", self.u0)
                 if getattr(self.bc, dim)[1] == "ic":
-                    self.bc.reset_value(dim, "r", self.u0_fv)
+                    self.bc.reset_value(dim, "r", self.u0)
 
     def _init_slope_limiting(
         self,
