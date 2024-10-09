@@ -23,7 +23,7 @@ VARIABLE_IDX_MAP = {
 }
 
 
-@lru_cache(maxsize=100)
+@lru_cache(maxsize=None)
 def get_array_slice(
     var: Union[str, Tuple[str]] = None,
     x: Tuple[int, int] = None,

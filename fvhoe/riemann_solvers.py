@@ -1,11 +1,17 @@
 from fvhoe.array_manager import get_array_slice as slc
-from fvhoe.hydro import compute_conservatives, compute_fluxes, compute_sound_speed
+from fvhoe.hydro import (
+    compute_conservatives,
+    compute_fluxes,
+    compute_sound_speed,
+    HydroState,
+)
 import numpy as np
+from typing import Tuple
 
 
 def advection_upwind(
-    wl: np.ndarray,
-    wr: np.ndarray,
+    hs: HydroState,
+    riemann_problem: Tuple[np.ndarray, np.ndarray],
     gamma: float,
     dim: str,
     csq_floor: float,
@@ -13,21 +19,22 @@ def advection_upwind(
     """
     upwinding numerical fluxes, pressure is assumed to be 0
     args:
-        wl (array_like) : primitive variables to the left of interface
-        wr (array_like) : primitive variables to the right of interface
+        hs (HydroState) : HydroState object
+        riemann_problem (Tuple[array_like, array_like]) : primitive variables to the left and right of interface
         gamma (float) : specific heat ratio
         dim (str) : "x", "y", "z"
         csq_floor (float) : floor on square of returned sound speed
     returns:
         out (array_like) : upwinding fluxes for conservative variables
     """
-    # compute conservative variables
+    # compute conservative variables for left and right states
+    wl, wr = riemann_problem
     ul = compute_conservatives(wl, gamma)
     ur = compute_conservatives(wr, gamma)
 
     # get hydro fluxes
-    Fl = compute_fluxes(u=ul, w=wl, gamma=gamma, dim=dim, include_pressure=False)
-    Fr = compute_fluxes(u=ur, w=wr, gamma=gamma, dim=dim, include_pressure=False)
+    Fl = compute_fluxes(hs=hs, u=ul, w=wl, gamma=gamma, dim=dim, include_pressure=False)
+    Fr = compute_fluxes(hs=hs, u=ur, w=wr, gamma=gamma, dim=dim, include_pressure=False)
 
     # assume velocity is continuous across interface
     v = wl[slc("v" + dim)][np.newaxis]  # velocity in dim-direction
@@ -38,8 +45,8 @@ def advection_upwind(
 
 
 def llf(
-    wl: np.ndarray,
-    wr: np.ndarray,
+    hs: HydroState,
+    riemann_problem: Tuple[np.ndarray, np.ndarray],
     gamma: float,
     dim: str,
     csq_floor: float,
@@ -49,22 +56,22 @@ def llf(
     Riemann Solvers and Numerical Methods for Fluid Dynamics by Toro
     Page 331
     args:
-        wl (array_like) : primitive variables to the left of interface
-        wr (array_like) : primitive variables to the right of interface
+        hs (HydroState) : HydroState object
+        riemann_problem (Tuple[array_like, array_like]) : primitive variables to the left and right of interface
         gamma (float) : specific heat ratio
         dim (str) : "x", "y", "z"
         csq_floor (float) : floor on square of returned sound speed
     returns:
         out (array_like) : llf fluxes for conservative variables
     """
-
-    # compute conservative variables
+    # compute conservative variables for left and right states
+    wl, wr = riemann_problem
     ul = compute_conservatives(wl, gamma)
     ur = compute_conservatives(wr, gamma)
 
     # get hydro fluxes
-    Fl = compute_fluxes(u=ul, w=wl, gamma=gamma, dim=dim)
-    Fr = compute_fluxes(u=ur, w=wr, gamma=gamma, dim=dim)
+    Fl = compute_fluxes(hs=hs, u=ul, w=wl, gamma=gamma, dim=dim)
+    Fr = compute_fluxes(hs=hs, u=ur, w=wr, gamma=gamma, dim=dim)
 
     # get sound speeds
     sl = np.abs(wl[slc("v" + dim)]) + compute_sound_speed(
@@ -81,8 +88,8 @@ def llf(
 
 
 def hllc(
-    wl: np.ndarray,
-    wr: np.ndarray,
+    hs: HydroState,
+    riemann_problem: Tuple[np.ndarray, np.ndarray],
     gamma: float,
     dim: str,
     csq_floor: float,
@@ -90,16 +97,16 @@ def hllc(
     """
     hllc numerical fluxes (David variation)
     args:
-        wl (array_like) : primitive variables to the left of interface
-        wr (array_like) : primitive variables to the right of interface
+        hs (HydroState) : HydroState object
+        riemann_problem (Tuple[array_like, array_like]) : primitive variables to the left and right of interface
         gamma (float) : specific heat ratio
-        dir (str) : "x", "y", "z"
+        dim (str) : "x", "y", "z"
         csq_floor (float) : floor on square of returned sound speed
     returns:
         out (array_like) : hllc fluxes for conservative variables
     """
-
-    # compute conservative variables
+    # compute conservative variables for left and right states
+    wl, wr = riemann_problem
     ul = compute_conservatives(wl, gamma)
     ur = compute_conservatives(wr, gamma)
 
@@ -173,4 +180,14 @@ def hllc(
         * np.where(v_gdv > 0, wl[slc("vz")], np.where(v_gdv < 0, wr[slc("vz")], 0))
     )
     out[slc("E")] = v_gdv * (E_gdv + P_gdv)
+    if hs.includes_passive_scalars:
+        out[slc("passive_scalars")] = (
+            r_gdv
+            * v_gdv
+            * np.where(
+                v_gdv > 0,
+                wl[slc("passive_scalars")],
+                np.where(v_gdv < 0, wr[slc("passive_scalars")], 0),
+            )
+        )
     return out

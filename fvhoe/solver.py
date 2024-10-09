@@ -205,6 +205,8 @@ class EulerSolver(ODE):
             ]
         )
 
+        # configure variable slicer
+
     def _init_mesh(self, x, y, z, nx, ny, nz, px, py, pz, CFL, fixed_dt):
         """
         initialize mesh parameters

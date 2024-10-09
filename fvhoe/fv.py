@@ -1,6 +1,6 @@
 from itertools import product
 from functools import lru_cache
-from fvhoe.array_manager import get_array_slice as slc
+from fvhoe.hydro import HydroState
 from fvhoe.stencils import (
     get_conservative_interpolation_stencil_weights,
     get_transverse_reconstruction_stencil_weights,
@@ -85,7 +85,7 @@ def fv_uniform_meshgen(
     return inner_coords, slab_coords
 
 
-@lru_cache(maxsize=100)
+@lru_cache(maxsize=None)
 def get_symmetric_slices(ndim: int, nslices: int, axis: int) -> list:
     """
     generate a list of symmetric slices
@@ -98,9 +98,8 @@ def get_symmetric_slices(ndim: int, nslices: int, axis: int) -> list:
     """
     if nslices < 1:
         raise ValueError(f"{nslices=}")
-    out = [
-        slc(ndim=ndim, axis=axis, cut=(i, -(nslices - 1) + i)) for i in range(nslices)
-    ]
+    hs = HydroState(ndim=ndim)
+    out = [hs(axis=axis, cut=(i, -(nslices - 1) + i)) for i in range(nslices)]
     return out
 
 

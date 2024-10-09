@@ -1,10 +1,138 @@
-from fvhoe.array_manager import get_array_slice as slc
+from dataclasses import dataclass
+from functools import lru_cache
 import numpy as np
+from typing import Tuple, Union
 
 
-def compute_primitives(u: np.ndarray, gamma: float) -> np.ndarray:
+@dataclass
+class HydroState:
+    """
+    HydroState class for managing hydrodynamic variables and passive scalars.
+        rho: density
+        vx, vy, vz: velocity components
+        mx, my, mz: momentum components
+        P: pressure
+        E: total energy
+        your_passive_scalar1, your_passive_scalar2, ...: passive scalars
+    args:
+        passive_scalars (tuple) : tuple of passive scalar names
+        ndim (int) : number of dimensions
+
+    There are two hash issues with this class:
+        1. This class uses a dummy hash method that always returns the same value.
+        2. This class is mutable, but it is not intended to be mutable. If the class is
+              modified after instantiation, the hash will not change, leading to
+              potentially unexpected behavior in the __call__ since it uses lru_cache.
+    """
+
+    passive_scalars: tuple = ()
+    ndim: int = 4
+
+    def __post_init__(self):
+        self.variable_map = {
+            "rho": 0,
+            "vx": 1,
+            "mx": 1,
+            "vy": 2,
+            "my": 2,
+            "vz": 3,
+            "mz": 3,
+            "v": np.arange(1, 4),
+            "m": np.arange(1, 4),
+            "P": 4,
+            "E": 4,
+        }
+
+        if self.passive_scalars:
+            for i, scalar in enumerate(self.passive_scalars, start=5):
+                self.variable_map[scalar] = i
+            self.variable_map["passive_scalars"] = np.arange(
+                5, 5 + len(self.passive_scalars)
+            )
+            self.includes_passive_scalars = True
+        else:
+            self.includes_passive_scalars = False
+
+    def __hash__(self):
+        return hash("HydroState dummy hash")
+
+    @lru_cache(maxsize=None)
+    def __call__(
+        self,
+        var: Union[str, Tuple[str]] = None,
+        x: Tuple[int, int] = None,
+        y: Tuple[int, int] = None,
+        z: Tuple[int, int] = None,
+        axis: int = None,
+        cut: Tuple[int, int] = None,
+        step: int = None,
+    ) -> Union[Tuple[slice], slice]:
+        """
+        Get the slice for the given variable and coordinates.
+        args:
+            var (str) : variable name or tuple of variable names. if None, all variables are selected
+            x (Tuple[int, int]) : x-coordinate slice. if None, all x-coordinates are selected
+            y (Tuple[int, int]) : y-coordinate slice. if None, all y-coordinates are selected
+            z (Tuple[int, int]) : z-coordinate slice. if None, all z-coordinates are selected
+            axis (int) : axis to cut, alternative to x, y, z
+            cut (Tuple[int, int]) : slice along dimension specified by axis. ignored if axis is None
+            step (int) : step size for the slice. ignored if axis is None
+        returns:
+            Tuple[slice] : slices for the given variable and coordinates with length equal to ndim.
+                if ndim is 1, a single slice is returned
+        """
+        slices = [slice(None)] * self.ndim
+
+        if var is not None:
+            if isinstance(var, str):
+                # retrieve single variable index
+                if var not in self.variable_map:
+                    raise ValueError(f"Variable '{var}' not found.")
+                slices[0] = self.variable_map[var]
+            elif isinstance(var, tuple):
+                # retrieve multiple variable indices
+                missing_vars = set(var) - set(self.variable_map.keys())
+                if missing_vars:
+                    raise ValueError(f"Variables not found: {missing_vars}")
+                slices[0] = np.array(list(map(self.variable_map.get, var)))
+            else:
+                raise ValueError(f"Invalid type for var: {type(var)}")
+
+        axes = [1, 2, 3, axis]
+        axis_slices = [x, y, z, cut]
+        for i, axis_slice in zip(axes, axis_slices):
+            if axis_slice is not None:
+                if i >= self.ndim:
+                    raise ValueError(
+                        f"Invalid axis {i} for array with {self.ndim} dimensions."
+                    )
+                if not isinstance(axis_slice, tuple):
+                    raise ValueError(
+                        f"Expected a tuple (start, stop) for axis {i}, got {axis_slice} of type {type(axis_slice)}"
+                    )
+                if len(axis_slice) != 2:
+                    raise ValueError(
+                        f"Invalid tuple length for axis {i}: {len(axis_slice)}"
+                    )
+                slices[i] = slice(
+                    axis_slice[0] or None,
+                    axis_slice[1] or None,
+                    step if i == axis else None,
+                )
+
+        if len(slices) == 1:
+            return slices[0]
+        return tuple(slices)
+
+
+# define 1D slicer with no passive scalars
+hs = HydroState(ndim=1)
+
+
+def compute_primitives(hs: HydroState, u: np.ndarray, gamma: float) -> np.ndarray:
     """
     args:
+        hs (HydroState) : HydroState object
         u (array_like) : has variables names ["rho", "mx", "my", "mz", "E"]
         gamma (float) : specific heat ratio
     returns:
@@ -13,27 +141,25 @@ def compute_primitives(u: np.ndarray, gamma: float) -> np.ndarray:
     w = np.empty_like(u)
 
     # get slices
-    rho = u[slc("rho")]
-    mx = u[slc("mx")]
-    my = u[slc("my")]
-    mz = u[slc("mz")]
-    E = u[slc("E")]
-    vx = w[slc("vx")]
-    vy = w[slc("vy")]
-    vz = w[slc("vz")]
+    rho = u[hs("rho")]
+    m = u[hs("m")]
+    E = u[hs("E")]
 
     # assign values
-    w[slc("rho")] = rho
-    vx[...] = mx / rho
-    vy[...] = my / rho
-    vz[...] = mz / rho
-    w[slc("P")] = (gamma - 1) * (E - 0.5 * (mx * vx + my * vy + mz * vz))
+    w[hs("rho")] = rho
+    w[hs("v")] = m / rho
+    w[hs("P")] = (gamma - 1) * (E - 0.5 * np.sum(m * w[hs("v")], axis=0))
+
+    if hs.includes_passive_scalars:
+        w[hs("passive_scalars")] = u[hs("passive_scalars")] / rho
+
     return w
 
 
-def compute_conservatives(w: np.ndarray, gamma: float) -> np.ndarray:
+def compute_conservatives(hs: HydroState, w: np.ndarray, gamma: float) -> np.ndarray:
     """
     args:
+        hs (HydroState) : HydroState object
         w (array_like) : has variables names ["rho", "vx", "vy", "vz", "P"]
         gamma (float) : specific heat ratio
     returns:
@@ -42,21 +168,17 @@ def compute_conservatives(w: np.ndarray, gamma: float) -> np.ndarray:
     u = np.empty_like(w)
 
     # get slices
-    rho = w[slc("rho")]
-    vx = w[slc("vx")]
-    vy = w[slc("vy")]
-    vz = w[slc("vz")]
-    P = w[slc("P")]
-    mx = u[slc("mx")]
-    my = u[slc("my")]
-    mz = u[slc("mz")]
+    rho = w[hs("rho")]
+    v = w[hs("v")]
+    P = w[hs("P")]
 
     # assign values
-    u[slc("rho")] = rho
-    mx[...] = rho * vx
-    my[...] = rho * vy
-    mz[...] = rho * vz
-    u[slc("E")] = P / (gamma - 1) + 0.5 * (mx * vx + my * vy + mz * vz)
+    u[hs("rho")] = rho
+    u[hs("m")] = rho * v
+    u[hs("E")] = P / (gamma - 1) + 0.5 * np.sum(u[hs("m")] * v, axis=0)
+
+    if hs.includes_passive_scalars:
+        u[hs("passive_scalars")] = rho * w[hs("passive_scalars")]
     return u
 
 
@@ -69,12 +191,13 @@ def compute_sound_speed(w: np.ndarray, gamma: float, csq_floor: float) -> np.nda
     returns:
         out (array_like) : sound speeds
     """
-    csq = gamma * w[slc("P")] / w[slc("rho")]
+    csq = gamma * w[hs("P")] / w[hs("rho")]
     out = np.sqrt(np.where(csq > csq_floor, csq, csq_floor))
     return out
 
 
 def compute_fluxes(
+    hs: HydroState,
     u: np.ndarray,
     w: np.ndarray,
     gamma: float,
@@ -85,7 +208,8 @@ def compute_fluxes(
     Riemann Solvers and Numerical Methods for Fluid Dynamics by Toro
     Page 3
     args:
-        u (array_like) : has variables names ["rho", "mx", "my", "mz", "E"]]
+        hs (HydroState) : HydroState object
+        u (array_like) : has variables names ["rho", "mx", "my", "mz", "E"]
         w (array_like) : has variables names ["rho", "vx", "vy", "vz", "P"]
         gamma (float) : specific heat ratio
         dim (str) : "x", "y", "z"
@@ -94,19 +218,17 @@ def compute_fluxes(
         out (array_like) : fluxes in specified direction, has variables names ["rho", "mx", "my", "mz", "E"]
     """
     out = np.empty_like(u)
-    v = w[slc("v" + dim)]  # velocity in dim-direction
+    v = w[hs("v" + dim)]  # velocity in dim-direction
 
     # assign values
-    out[slc("rho")] = v * w[slc("rho")]
-    out[slc("mx")] = v * u[slc("mx")]
-    out[slc("my")] = v * u[slc("my")]
-    out[slc("mz")] = v * u[slc("mz")]
-    out[slc("E")] = v * u[slc("E")]
+    out[hs("rho")] = v * w[hs("rho")]
+    out[hs("m")] = v * u[hs("m")]
+    out[hs("E")] = v * u[hs("E")]
     if include_pressure:
-        mflux = out[slc("m" + dim)]
-        Eflux = out[slc("E")]
-        mflux[...] = mflux + w[slc("P")]  # pressure term
-        Eflux[...] = Eflux + v * w[slc("P")]  # pressure term
+        out[hs(f"m{dim}")] = out[hs(f"m{dim}")] + w[hs("P")]  # pressure term
+        out[hs("E")] = out[hs("E")] + v * w[hs("P")]  # pressure term
+    if hs.includes_passive_scalars:
+        out[hs("passive_scalars")] = v * u[hs("passive_scalars")]
     return out
 
 
@@ -154,9 +276,7 @@ def hydro_dt(
         out (float) : time-step size
     """
     c = compute_sound_speed(w, gamma, csq_floor=csq_floor)
-    vxa = np.abs(w[slc("vx")])
-    vya = np.abs(w[slc("vy")])
-    vza = np.abs(w[slc("vz")])
-    out = CFL * h / np.max(vxa + vya + vza + ndim * c)
+    va = np.abs(w[hs("v")])
+    out = CFL * h / np.max(np.sum(va, axis=0) + ndim * c)
     out = out.item()  # in case of cupy
     return out
