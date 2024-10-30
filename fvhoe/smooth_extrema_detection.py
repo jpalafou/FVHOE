@@ -1,4 +1,4 @@
-from fvhoe.array_manager import get_array_slice as slc
+from fvhoe.array_management import get_array_slice as slc
 from fvhoe.fv import second_order_central_difference, get_symmetric_slices
 import numpy as np
 

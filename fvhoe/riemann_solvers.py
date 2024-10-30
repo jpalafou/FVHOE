@@ -1,12 +1,13 @@
-from fvhoe.array_manager import get_array_slice as slc
+from fvhoe.array_management import HydroState, get_array_slice as slc
 from fvhoe.hydro import (
     compute_conservatives,
     compute_fluxes,
     compute_sound_speed,
-    HydroState,
 )
 import numpy as np
 from typing import Tuple
+
+_hs = HydroState(ndim=1)
 
 
 def advection_upwind(
@@ -22,19 +23,19 @@ def advection_upwind(
         hs (HydroState) : HydroState object
         riemann_problem (Tuple[array_like, array_like]) : primitive variables to the left and right of interface
         gamma (float) : specific heat ratio
-        dim (str) : "x", "y", "z"
+        dim (str) : "x", "y", or "z"
         csq_floor (float) : floor on square of returned sound speed
     returns:
         out (array_like) : upwinding fluxes for conservative variables
     """
     # compute conservative variables for left and right states
     wl, wr = riemann_problem
-    ul = compute_conservatives(wl, gamma)
-    ur = compute_conservatives(wr, gamma)
+    ul = compute_conservatives(hs, wl, gamma)
+    ur = compute_conservatives(hs, wr, gamma)
 
     # get hydro fluxes
-    Fl = compute_fluxes(hs=hs, u=ul, w=wl, gamma=gamma, dim=dim, include_pressure=False)
-    Fr = compute_fluxes(hs=hs, u=ur, w=wr, gamma=gamma, dim=dim, include_pressure=False)
+    Fl = compute_fluxes(hs=hs, w=wl, u=ul, gamma=gamma, dim=dim, include_pressure=False)
+    Fr = compute_fluxes(hs=hs, w=wr, u=ur, gamma=gamma, dim=dim, include_pressure=False)
 
     # assume velocity is continuous across interface
     v = wl[slc("v" + dim)][np.newaxis]  # velocity in dim-direction
@@ -59,19 +60,19 @@ def llf(
         hs (HydroState) : HydroState object
         riemann_problem (Tuple[array_like, array_like]) : primitive variables to the left and right of interface
         gamma (float) : specific heat ratio
-        dim (str) : "x", "y", "z"
+        dim (str) : "x", "y", or "z"
         csq_floor (float) : floor on square of returned sound speed
     returns:
         out (array_like) : llf fluxes for conservative variables
     """
     # compute conservative variables for left and right states
     wl, wr = riemann_problem
-    ul = compute_conservatives(wl, gamma)
-    ur = compute_conservatives(wr, gamma)
+    ul = compute_conservatives(hs, wl, gamma)
+    ur = compute_conservatives(hs, wr, gamma)
 
     # get hydro fluxes
-    Fl = compute_fluxes(hs=hs, u=ul, w=wl, gamma=gamma, dim=dim)
-    Fr = compute_fluxes(hs=hs, u=ur, w=wr, gamma=gamma, dim=dim)
+    Fl = compute_fluxes(hs=hs, w=wl, u=ul, gamma=gamma, dim=dim)
+    Fr = compute_fluxes(hs=hs, w=wr, u=ur, gamma=gamma, dim=dim)
 
     # get sound speeds
     sl = np.abs(wl[slc("v" + dim)]) + compute_sound_speed(
@@ -100,15 +101,15 @@ def hllc(
         hs (HydroState) : HydroState object
         riemann_problem (Tuple[array_like, array_like]) : primitive variables to the left and right of interface
         gamma (float) : specific heat ratio
-        dim (str) : "x", "y", "z"
+        dim (str) : "x", "y", or "z"
         csq_floor (float) : floor on square of returned sound speed
     returns:
         out (array_like) : hllc fluxes for conservative variables
     """
     # compute conservative variables for left and right states
     wl, wr = riemann_problem
-    ul = compute_conservatives(wl, gamma)
-    ur = compute_conservatives(wr, gamma)
+    ul = compute_conservatives(hs, wl, gamma)
+    ur = compute_conservatives(hs, wr, gamma)
 
     # sound speed
     cl = compute_sound_speed(wl, gamma, csq_floor=csq_floor)
@@ -157,37 +158,40 @@ def hllc(
 
     # HLLC flux
     out = np.empty_like(ul)
-    out[slc("rho")] = r_gdv * v_gdv
-    out[slc("mx")] = (
+    out[hs("rho")] = r_gdv * v_gdv
+    out[hs("mx")] = (
         r_gdv * v_gdv * v_gdv + P_gdv
         if dim == "x"
         else r_gdv
         * v_gdv
         * np.where(v_gdv > 0, wl[slc("vx")], np.where(v_gdv < 0, wr[slc("vx")], 0))
     )
-    out[slc("my")] = (
+    out[hs("my")] = (
         r_gdv * v_gdv * v_gdv + P_gdv
         if dim == "y"
         else r_gdv
         * v_gdv
         * np.where(v_gdv > 0, wl[slc("vy")], np.where(v_gdv < 0, wr[slc("vy")], 0))
     )
-    out[slc("mz")] = (
+    out[hs("mz")] = (
         r_gdv * v_gdv * v_gdv + P_gdv
         if dim == "z"
         else r_gdv
         * v_gdv
         * np.where(v_gdv > 0, wl[slc("vz")], np.where(v_gdv < 0, wr[slc("vz")], 0))
     )
-    out[slc("E")] = v_gdv * (E_gdv + P_gdv)
-    if hs.includes_passive_scalars:
-        out[slc("passive_scalars")] = (
+    out[hs("E")] = v_gdv * (E_gdv + P_gdv)
+
+    # handle passive scalars
+    if hs.includes_passives:
+        out[hs("passive_scalars")] = (
             r_gdv
             * v_gdv
             * np.where(
                 v_gdv > 0,
-                wl[slc("passive_scalars")],
-                np.where(v_gdv < 0, wr[slc("passive_scalars")], 0),
+                wl[hs("passive_scalars")],
+                np.where(v_gdv < 0, wr[hs("passive_scalars")], 0),
             )
         )
+
     return out

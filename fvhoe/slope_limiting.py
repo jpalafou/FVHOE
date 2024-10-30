@@ -1,4 +1,4 @@
-from fvhoe.array_manager import get_array_slice as slc
+from fvhoe.array_management import get_array_slice as slc
 from fvhoe.fv import get_symmetric_slices
 from fvhoe.smooth_extrema_detection import (
     compute_1d_smooth_extrema_detector,

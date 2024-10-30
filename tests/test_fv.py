@@ -7,7 +7,7 @@ from fvhoe.fv import (
 )
 import numpy as np
 import pytest
-from tests.test_utils import l1err
+from tests.utils import l1err
 
 
 def test_first_order_cell_average():

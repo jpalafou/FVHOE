@@ -1,9 +1,9 @@
-from fvhoe.array_manager import get_array_slice as slc
+from fvhoe.array_management import get_array_slice as slc
 from fvhoe.hydro import advection_dt
 from fvhoe.initial_conditions import sinus, square
 from fvhoe.solver import EulerSolver
 import pytest
-from tests.test_utils import l2err
+from tests.utils import l2err
 
 
 @pytest.mark.parametrize("f0", [sinus, square])

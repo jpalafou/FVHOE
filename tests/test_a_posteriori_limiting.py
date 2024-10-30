@@ -1,11 +1,11 @@
-from fvhoe.array_manager import get_array_slice as slc
+from fvhoe.array_management import get_array_slice as slc
 from fvhoe.boundary_conditions import BoundaryCondition
 from fvhoe.initial_conditions import double_shock_1d, sedov
 from fvhoe.slope_limiting import detect_troubled_cells
 from fvhoe.solver import EulerSolver
 import numpy as np
 import pytest
-from tests.test_utils import l2err
+from tests.utils import l2err
 
 
 @pytest.mark.parametrize("dim", ["x", "xy", "xyz"])

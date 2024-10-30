@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 from itertools import product
-from fvhoe.array_manager import ArrayManager, get_array_slice as slc
+from fvhoe.array_management import ArrayManager, get_array_slice as slc
 import numpy as np
 from typing import Dict, Tuple, Union
 
@@ -12,7 +12,7 @@ except Exception:
     CUPY_AVAILABLE = False
 
 
-def set_dirichlet_bc(
+def _set_dirichlet_bc(
     u: np.ndarray,
     boundary_values: Union[np.ndarray, callable],
     slab_thickness: int,
@@ -52,7 +52,7 @@ def set_dirichlet_bc(
     slab_view[...] = dirichlet_values
 
 
-def set_free_bc(u: np.ndarray, slab_thickness: int, axis: int, pos: str):
+def _set_free_bc(u: np.ndarray, slab_thickness: int, axis: int, pos: str):
     """
     modify u to impose free boundaries
     args:
@@ -77,7 +77,7 @@ def set_free_bc(u: np.ndarray, slab_thickness: int, axis: int, pos: str):
     u[outer] = u[inner]
 
 
-def set_periodic_bc(u: np.ndarray, slab_thickness: int, axis: int) -> None:
+def _set_periodic_bc(u: np.ndarray, slab_thickness: int, axis: int) -> None:
     """
     modify u to impose periodic boundaries
     args:
@@ -96,7 +96,7 @@ def set_periodic_bc(u: np.ndarray, slab_thickness: int, axis: int) -> None:
     u[outer_r] = u[inner_l]
 
 
-def set_symmetric_bc(
+def _set_symmetric_bc(
     u: np.ndarray,
     slab_thickness: int,
     axis: int,
@@ -324,7 +324,7 @@ class BoundaryCondition:
                     dirichlet_kwargs = dict(x=X, y=Y, z=Z)
                     if bc == "dirichlet":
                         dirichlet_kwargs["t"] = t
-                    set_dirichlet_bc(
+                    _set_dirichlet_bc(
                         u=out,
                         boundary_values=getattr(self, f"{dim}_value")[j],
                         slab_thickness=slab_thickness,
@@ -333,9 +333,9 @@ class BoundaryCondition:
                         **dirichlet_kwargs,
                     )
                 case "free":
-                    set_free_bc(out, slab_thickness, axis=i + 1, pos=pos)
+                    _set_free_bc(out, slab_thickness, axis=i + 1, pos=pos)
                 case "outflow" | "reflective":
-                    set_symmetric_bc(
+                    _set_symmetric_bc(
                         out,
                         slab_thickness,
                         axis=i + 1,
@@ -344,7 +344,7 @@ class BoundaryCondition:
                     )
                 case "periodic":
                     if pos == "l":  # do not apply periodic bc's twice
-                        set_periodic_bc(out, slab_thickness, axis=i + 1)
+                        _set_periodic_bc(out, slab_thickness, axis=i + 1)
                 case "special-case-double-mach-reflection-y=0":
                     X = self.trim_slabs(gw=gw, axis=1, pos="l")[0][
                         np.newaxis, :, :1, :1
@@ -353,10 +353,10 @@ class BoundaryCondition:
                     out_refl = out.copy()
 
                     # set free bc
-                    set_free_bc(out_free, slab_thickness, axis=i + 1, pos=pos)
+                    _set_free_bc(out_free, slab_thickness, axis=i + 1, pos=pos)
 
                     # set reflective bc
-                    set_symmetric_bc(
+                    _set_symmetric_bc(
                         out_refl,
                         slab_thickness,
                         axis=i + 1,

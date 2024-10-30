@@ -1,14 +1,84 @@
-from fvhoe.array_manager import get_array_slice as slc
+from abc import ABC, abstractmethod
+from fvhoe.array_management import HydroState, get_array_slice as slc
 import numpy as np
-from typing import Tuple, Union
+from numbers import Number
+from typing import Callable, Dict, Tuple, Union
 
 
-def isnumeric(x):
-    try:
-        float(x)
-        return True
-    except ValueError:
-        return False
+_hs = HydroState(ndim=1)
+
+
+class InitialCondition(ABC):
+    """
+    Abstract base class for building hydrodynamic initial conditions.
+    """
+
+    def __init__(self, *args, **kwargs):
+        self.args = args
+        self.kwargs = kwargs
+
+    @abstractmethod
+    def base_ic(
+        self, *args, **kwargs
+    ) -> Callable[[np.ndarray, np.ndarray, np.ndarray], np.ndarray]:
+        """
+        Abstract method for core hydrodynamic initial conditions, to be implemented in subclasses.
+        Should return a function that produces an IC array with shape (5, nx, ny, nz).
+        """
+        pass
+
+    def build_ic(
+        self,
+        hs: HydroState,
+        passive_ic_funcs: Dict[
+            str, Callable[[np.ndarray, np.ndarray, np.ndarray], np.ndarray]
+        ] = None,
+    ) -> Callable[[np.ndarray, np.ndarray, np.ndarray], np.ndarray]:
+        """
+        Combines base hydrodynamic IC function with passive scalar IC functions.
+        Should return a function that produces an IC array with shape (5 + len(hs.passive_scalars), nx, ny, nz).
+        args:
+            hs (HydroState) : HydroState object
+            passive_ic_funcs (Dict[str, Callable[[np.ndarray, np.ndarray, np.ndarray], np.ndarray]) : dictionary of passive scalar IC functions
+                each function must have the signature f(x, y, z) -> np.ndarray
+                    args:
+                        x (np.ndarray) : x-coordinate mesh, shape (nx, ny, nz)
+                        y (np.ndarray) : y-coordinate mesh, shape (nx, ny, nz)
+                        z (np.ndarray) : z-coordinate mesh, shape (nx, ny, nz)
+                    returns:
+                        out (np.ndarray) : array of passive scalar, shape (nx, ny, nz)
+        returns:
+            ic_func (Callable[[np.ndarray, np.ndarray, np.ndarray], np.ndarray]) : function with signature
+                args:
+                    x (np.ndarray) : x-coordinate mesh, shape (nx, ny, nz)
+                    y (np.ndarray) : y-coordinate mesh, shape (nx, ny, nz)
+                    z (np.ndarray) : z-coordinate mesh, shape (nx, ny, nz)
+                returns:
+                    out (np.ndarray) : array of primitive variables, shape (5 + len(hs.passive_scalars), nx, ny, nz)
+        """
+        # check if all passive scalar ICs are provided
+        if hs.includes_passives:
+            missing_passives = hs.passive_scalars - passive_ic_funcs.keys()
+            if missing_passives:
+                raise ValueError(
+                    f"Missing IC definitions for passive scalars: {missing_passives}"
+                )
+
+        # core hydrodynamic IC function
+        core_ic_func = self.base_ic(*self.args, **self.kwargs)
+
+        # combine core and passive scalar IC functions
+        def ic_func(x: np.ndarray, y: np.ndarray, z: np.ndarray) -> np.ndarray:
+            out = np.empty((5 + len(hs.passive_scalars), *x.shape))
+            out[:5, ...] = core_ic_func(x, y, z)
+            if hs.includes_passives:
+                for scalar in hs.passive_scalars:
+                    out[hs.variable_map[scalar], ...] = passive_ic_funcs[scalar](
+                        x, y, z
+                    )
+            return out
+
+        return ic_func
 
 
 def variable_array(
@@ -46,6 +116,49 @@ def variable_array(
         out[slc("vy")] = vy
         out[slc("vz")] = vz
     return out
+
+
+class Sinus(InitialCondition):
+    def base_ic(
+        dims: str = "x",
+        rho_min_max: Tuple[float, float] = (1, 2),
+        P: float = 1,
+        vx: float = 1,
+        vy: float = 0,
+        vz: float = 0,
+    ) -> Callable[[np.ndarray, np.ndarray, np.ndarray], np.ndarray]:
+        """
+        returns initial condition function for a sinusoidal density wave
+        args:
+            dims (str) : contains "x", "y", and/or "z"
+            rho_min_max (Tuple[float, float]) : min density, max density
+            P (float) : uniform pressure
+            vx (float) : uniform x-velocity
+            vy (float) : uniform y-velocity
+            vz (float) : uniform z-velocity
+        returns:
+            f(x, y, z)
+        """
+
+        def f(
+            x: np.ndarray,
+            y: np.ndarray = None,
+            z: np.ndarray = None,
+        ) -> np.ndarray:
+            rho_min, rho_range = rho_min_max[0], rho_min_max[1] - rho_min_max[0]
+            r = np.zeros_like(x)
+            for dim, coord in zip("xyz", [x, y, z]):
+                r += coord if dim in dims else 0
+
+            out = np.empty((5,) + r.shape)
+            out[_hs("rho")] = rho_range * (0.5 * np.sin(2 * np.pi * r) + 0.5) + rho_min
+            out[_hs("vx")] = vx
+            out[_hs("vy")] = vy
+            out[_hs("vz")] = vz
+            out[_hs("P")] = P
+            return out
+
+        return f
 
 
 def sinus(
@@ -94,6 +207,51 @@ def sinus(
 
     f.__name__ = "sinus"
     return f
+
+
+class Square(InitialCondition):
+    def base_ic(
+        self,
+        dims: str = "x",
+        rho_min_max: Tuple[float, float] = (1, 2),
+        P: float = 1,
+        vx: float = 1,
+        vy: float = 0,
+        vz: float = 0,
+    ) -> Callable[[np.ndarray, np.ndarray, np.ndarray], np.ndarray]:
+        """
+        returns initial condition function for a square density wave
+        args:
+            dims (str) : contains "x", "y", and/or "z"
+            rho_min_max (Tuple[float, float]) : min density, max density
+            P (float) : uniform pressure
+            vx (float) : uniform x-velocity
+            vy (float) : uniform y-velocity
+            vz (float) : uniform z-velocity
+        returns:
+            f(x, y, z)
+        """
+
+        def f(
+            x: np.ndarray,
+            y: np.ndarray = None,
+            z: np.ndarray = None,
+        ) -> np.ndarray:
+            inside_square = np.ones_like(x, dtype=bool)
+            for dim, r in zip("xyz", [x, y, z]):
+                inside_square &= (
+                    np.logical_and(r > 0.25, r < 0.75) if dim in dims else True
+                )
+
+            out = np.empty((5,) + r.shape)
+            out[_hs("rho")] = np.where(inside_square, rho_min_max[1], rho_min_max[0])
+            out[_hs("vx")] = vx
+            out[_hs("vy")] = vy
+            out[_hs("vz")] = vz
+            out[_hs("P")] = P
+            return out
+
+        return f
 
 
 def square(
@@ -186,6 +344,50 @@ def slotted_disk(
 
     f.__name__ = "slotted_disk"
     return f
+
+
+class Shock1D(InitialCondition):
+    def base_ic(
+        self,
+        dim: str = "x",
+        position: float = 0.5,
+        rho_left_right: Tuple[float, float] = (1, 0.125),
+        P_left_right: Tuple[float, float] = (1, 0.1),
+        v_left_right: Tuple[float, float] = (0, 0),
+    ) -> Callable[[np.ndarray, np.ndarray, np.ndarray], np.ndarray]:
+        """
+        returns initial condition function for a normal shock tube
+        args:
+            dim (str) : "x", "y", or "z"
+            position (float) : position of the shock
+            rho_left_right (Tuple[float, float]) : density left and right of the shock
+            P_left_right (Tuple[float, float]) : pressure left and right of the shock
+            v_left_right (Tuple[float, float]) : velocity left and right of the shock
+        returns:
+            f(x, y, z)
+        """
+
+        def f(
+            x: np.ndarray,
+            y: np.ndarray = None,
+            z: np.ndarray = None,
+        ) -> np.ndarray:
+            if dim not in "xyz":
+                raise ValueError("dim must be 'x', 'y', or 'z'")
+            r = {"x": x, "y": y, "z": z}[dim]
+            v = np.where(r < position, v_left_right[0], v_left_right[1])
+
+            out = np.empty((5,) + r.shape)
+            out[_hs("rho")] = np.where(
+                r < position, rho_left_right[0], rho_left_right[1]
+            )
+            out[_hs("vx")] = v if dim == "x" else 0
+            out[_hs("vy")] = v if dim == "y" else 0
+            out[_hs("vz")] = v if dim == "z" else 0
+            out[_hs("P")] = np.where(r < position, P_left_right[0], P_left_right[1])
+            return out
+
+        return f
 
 
 def shock_1d(
@@ -467,7 +669,7 @@ def shock_tube(
         """
         if mode == "tube":
             # convert single values to tuples
-            center_as_tuple = (center,) if isnumeric(center) else center
+            center_as_tuple = (center,) if isinstance(center, Number) else center
 
             # define center coordinates in 3D
             if len(center_as_tuple) != len(dims):

@@ -1,10 +1,10 @@
-from fvhoe.array_manager import get_array_slice as slc
+from fvhoe.array_management import get_array_slice as slc
 from fvhoe.boundary_conditions import BoundaryCondition
 from fvhoe.initial_conditions import sedov
 from fvhoe.solver import EulerSolver
 import numpy as np
 import pytest
-from tests.test_utils import l1err
+from tests.utils import l1err
 
 
 @pytest.mark.parametrize("dims", ["xy", "yz", "zx", "xyz"])
