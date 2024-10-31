@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from fvhoe.array_management import HydroState
+from fvhoe.hydro import HydroState
 import numpy as np
 from numbers import Number
 from typing import Callable, Dict, Tuple, Union
