@@ -1,5 +1,5 @@
 from fvhoe.boundary_conditions import BoundaryCondition
-from fvhoe.hydro import get_array_slice as HydroState
+from fvhoe.hydro import HydroState
 from fvhoe.initial_conditions import SedovBlast
 from fvhoe.solver import EulerSolver
 import numpy as np
