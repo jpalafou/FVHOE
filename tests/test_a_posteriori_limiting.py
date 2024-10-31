@@ -1,11 +1,13 @@
-from fvhoe.array_management import get_array_slice as slc
 from fvhoe.boundary_conditions import BoundaryCondition
-from fvhoe.initial_conditions import double_shock_1d, sedov
+from fvhoe.hydro import HydroState
+from fvhoe.initial_conditions import DoubleShock1D, SedovBlast
 from fvhoe.slope_limiting import detect_troubled_cells
 from fvhoe.solver import EulerSolver
 import numpy as np
 import pytest
 from tests.utils import l2err
+
+_hs = HydroState(ndim=1)
 
 
 @pytest.mark.parametrize("dim", ["x", "xy", "xyz"])
@@ -80,7 +82,7 @@ def test_1d_symmetry(p: int, rs: str, limiting_config: dict, N: int = 100):
     solutions = {}
     for dim in ["x", "y", "z"]:
         solver = EulerSolver(
-            w0=double_shock_1d(dim=dim),
+            w0=DoubleShock1D(dim=dim),
             nx=N if dim == "x" else 1,
             ny=N if dim == "y" else 1,
             nz=N if dim == "z" else 1,
@@ -103,12 +105,12 @@ def test_1d_symmetry(p: int, rs: str, limiting_config: dict, N: int = 100):
         solutions[dim] = solver
 
     xyerr = l2err(
-        solutions["x"].snapshots[-1]["w"][slc("rho")][:, 0, 0],
-        solutions["y"].snapshots[-1]["w"][slc("rho")][0, :, 0],
+        solutions["x"].snapshots[-1]["w"][_hs("rho")][:, 0, 0],
+        solutions["y"].snapshots[-1]["w"][_hs("rho")][0, :, 0],
     )
     yzerr = l2err(
-        solutions["y"].snapshots[-1]["w"][slc("rho")][0, :, 0],
-        solutions["z"].snapshots[-1]["w"][slc("rho")][0, 0, :],
+        solutions["y"].snapshots[-1]["w"][_hs("rho")][0, :, 0],
+        solutions["z"].snapshots[-1]["w"][_hs("rho")][0, 0, :],
     )
 
     assert xyerr == 0
@@ -133,7 +135,7 @@ def test_2d_symmetry(p: int, rs: str, limiting_config: dict, N: int = 32):
     solutions = {}
     for dims in ["xy", "yz", "zx"]:
         solver = EulerSolver(
-            w0=sedov(dims=dims),
+            w0=SedovBlast(dims=dims),
             conservative_ic=True,
             fv_ic=True,
             nx=N if "x" in dims else 1,
@@ -158,12 +160,12 @@ def test_2d_symmetry(p: int, rs: str, limiting_config: dict, N: int = 32):
         solutions[dims] = solver
 
     xy_yz_err = l2err(
-        solutions["xy"].snapshots[-1]["w"][slc("rho")][:, :, 0],
-        solutions["yz"].snapshots[-1]["w"][slc("rho")][0, :, :],
+        solutions["xy"].snapshots[-1]["w"][_hs("rho")][:, :, 0],
+        solutions["yz"].snapshots[-1]["w"][_hs("rho")][0, :, :],
     )
     yz_zx_err = l2err(
-        solutions["yz"].snapshots[-1]["w"][slc("rho")][0, :, :],
-        solutions["zx"].snapshots[-1]["w"][slc("rho")][:, 0, :],
+        solutions["yz"].snapshots[-1]["w"][_hs("rho")][0, :, :],
+        solutions["zx"].snapshots[-1]["w"][_hs("rho")][:, 0, :],
     )
 
     assert xy_yz_err == 0

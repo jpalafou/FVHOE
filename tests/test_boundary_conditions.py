@@ -1,11 +1,13 @@
-from fvhoe.array_management import get_array_slice as slc
 from fvhoe.boundary_conditions import BoundaryCondition
 from fvhoe.fv import fv_uniform_meshgen
-from fvhoe.initial_conditions import variable_array, shu_osher_1d
+from fvhoe.hydro import HydroState
+from fvhoe.initial_conditions import ShuOsher1D
 from fvhoe.solver import EulerSolver
 import numpy as np
 import pytest
 from tests.utils import l1err
+
+_hs = HydroState(ndim=1)
 
 
 @pytest.fixture
@@ -104,15 +106,12 @@ def test_dirichlet_f_of_xyzt(N: int = 64, gw: int = 10, t: float = 0.5):
             * np.sin(2 * np.pi * z)
             * np.sin(2 * np.pi * t)
         )
-        out = variable_array(
-            shape=x.shape,
-            rho=data,
-            P=2 * data,
-            vx=3 * data,
-            vy=4 * data,
-            vz=5 * data,
-            conservative=True,
-        )
+        out = np.empty((5, *data.shape))
+        out[_hs("rho")] = data
+        out[_hs("P")] = 2 * data
+        out[_hs("vx")] = 3 * data
+        out[_hs("vy")] = 4 * data
+        out[_hs("vz")] = 5 * data
         return out
 
     h = 1 / N
@@ -158,7 +157,7 @@ def test_ic_bc(dim: str, p: int, N: int = 100, gamma: float = 1.4, T: float = 1.
     """
     # set up solvers
     solver_configs = dict(
-        w0=shu_osher_1d(dim=dim),
+        w0=ShuOsher1D(dim=dim),
         x=(0, 10) if dim == "x" else (0, 1),
         y=(0, 10) if dim == "y" else (0, 1),
         z=(0, 10) if dim == "z" else (0, 1),
@@ -218,8 +217,8 @@ def test_ic_bc(dim: str, p: int, N: int = 100, gamma: float = 1.4, T: float = 1.
     # compare solvers
     assert (
         l1err(
-            solver_dirichlet.snapshots[-1]["w"][slc("P")],
-            solver_ic.snapshots[-1]["w"][slc("P")],
+            solver_dirichlet.snapshots[-1]["w"][_hs("P")],
+            solver_ic.snapshots[-1]["w"][_hs("P")],
         )
         < 1e-14
     )

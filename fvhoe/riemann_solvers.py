@@ -1,8 +1,8 @@
-from fvhoe.array_management import HydroState, get_array_slice as slc
 from fvhoe.hydro import (
     compute_conservatives,
     compute_fluxes,
     compute_sound_speed,
+    HydroState,
 )
 import numpy as np
 from typing import Tuple
@@ -38,7 +38,7 @@ def advection_upwind(
     Fr = compute_fluxes(hs=hs, w=wr, u=ur, gamma=gamma, dim=dim, include_pressure=False)
 
     # assume velocity is continuous across interface
-    v = wl[slc("v" + dim)][np.newaxis]  # velocity in dim-direction
+    v = wl[_hs("v" + dim)][np.newaxis]  # velocity in dim-direction
 
     # upwind
     out = np.where(v > 0, Fl, np.where(v < 0, Fr, 0))
@@ -75,10 +75,10 @@ def llf(
     Fr = compute_fluxes(hs=hs, w=wr, u=ur, gamma=gamma, dim=dim)
 
     # get sound speeds
-    sl = np.abs(wl[slc("v" + dim)]) + compute_sound_speed(
+    sl = np.abs(wl[_hs("v" + dim)]) + compute_sound_speed(
         wl, gamma, csq_floor=csq_floor
     )
-    sr = np.abs(wr[slc("v" + dim)]) + compute_sound_speed(
+    sr = np.abs(wr[_hs("v" + dim)]) + compute_sound_speed(
         wr, gamma, csq_floor=csq_floor
     )
     smax = np.maximum(sl, sr)
@@ -117,10 +117,10 @@ def hllc(
     cmax = np.maximum(cl, cr)
 
     # single out relevant quantities
-    vl, vr = wl[slc("v" + dim)], wr[slc("v" + dim)]
-    rhol, rhor = wl[slc("rho")], wr[slc("rho")]
-    Pl, Pr = wl[slc("P")], wr[slc("P")]
-    El, Er = ul[slc("E")], ur[slc("E")]
+    vl, vr = wl[_hs("v" + dim)], wr[_hs("v" + dim)]
+    rhol, rhor = wl[_hs("rho")], wr[_hs("rho")]
+    Pl, Pr = wl[_hs("P")], wr[_hs("P")]
+    El, Er = ul[_hs("E")], ur[_hs("E")]
 
     # Compute HLL wave speed
     Sl = np.minimum(vl, vr) - cmax
@@ -164,21 +164,21 @@ def hllc(
         if dim == "x"
         else r_gdv
         * v_gdv
-        * np.where(v_gdv > 0, wl[slc("vx")], np.where(v_gdv < 0, wr[slc("vx")], 0))
+        * np.where(v_gdv > 0, wl[_hs("vx")], np.where(v_gdv < 0, wr[_hs("vx")], 0))
     )
     out[hs("my")] = (
         r_gdv * v_gdv * v_gdv + P_gdv
         if dim == "y"
         else r_gdv
         * v_gdv
-        * np.where(v_gdv > 0, wl[slc("vy")], np.where(v_gdv < 0, wr[slc("vy")], 0))
+        * np.where(v_gdv > 0, wl[_hs("vy")], np.where(v_gdv < 0, wr[_hs("vy")], 0))
     )
     out[hs("mz")] = (
         r_gdv * v_gdv * v_gdv + P_gdv
         if dim == "z"
         else r_gdv
         * v_gdv
-        * np.where(v_gdv > 0, wl[slc("vz")], np.where(v_gdv < 0, wr[slc("vz")], 0))
+        * np.where(v_gdv > 0, wl[_hs("vz")], np.where(v_gdv < 0, wr[_hs("vz")], 0))
     )
     out[hs("E")] = v_gdv * (E_gdv + P_gdv)
 

@@ -1,4 +1,3 @@
-from fvhoe.array_management import get_array_slice as slc
 from fvhoe.hydro import compute_conservatives, compute_primitives, HydroState
 import numpy as np
 import pytest
@@ -23,7 +22,7 @@ def test_conservative_to_primitive_invertibility(
     """
     u1 = 2 * np.random.rand(7, 64, 64, 64) + 1
     u2 = compute_conservatives(hs, compute_primitives(hs, u1, gamma=gamma), gamma=gamma)
-    assert l1err(u1[slc("E")], u2[slc("E")]) < 1e-15
+    assert l1err(u1[hs("E")], u2[hs("E")]) < 1e-15
 
 
 @pytest.mark.parametrize("test_number", range(5))
@@ -39,4 +38,4 @@ def test_primitive_to_conservative_invertibility(
     """
     w1 = 2 * np.random.rand(7, 64, 64, 64) + 1
     w2 = compute_primitives(hs, compute_conservatives(hs, w1, gamma=gamma), gamma=gamma)
-    assert l1err(w1[slc("P")], w2[slc("P")]) < 1e-15
+    assert l1err(w1[hs("P")], w2[hs("P")]) < 1e-15

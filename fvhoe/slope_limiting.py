@@ -1,5 +1,5 @@
-from fvhoe.array_management import get_array_slice as slc
 from fvhoe.fv import get_symmetric_slices
+from fvhoe.hydro import HydroState
 from fvhoe.smooth_extrema_detection import (
     compute_1d_smooth_extrema_detector,
     compute_2d_smooth_extrema_detector,
@@ -17,6 +17,8 @@ try:
     CUPY_AVAILABLE = True
 except Exception:
     CUPY_AVAILABLE = False
+
+_hs = HydroState(ndim=1)
 
 
 def MUSCL_interpolations(
@@ -215,7 +217,7 @@ def detect_troubled_cells(
     # NAD across all variables
     if NAD_vars is not None:
         NAD_var_filter = np.zeros((5, 1, 1, 1))
-        NAD_var_filter[slc(NAD_vars)] = 1
+        NAD_var_filter[_hs(NAD_vars)] = 1
         NAD_trouble_per_var = np.where(NAD_var_filter, NAD_trouble_per_var, 0)
     NAD_trouble = np.any(NAD_trouble_per_var, axis=0)
 
@@ -228,10 +230,10 @@ def detect_troubled_cells(
     if PAD_bounds is not None:
         for var, (lowr, uppr) in PAD_bounds.items():
             PAD_indicator[...] = (
-                u_candidate_inner[slc(var)] - lowr
+                u_candidate_inner[_hs(var)] - lowr
             )  # lower PAD difference
             PAD_indicator[...] = np.minimum(
-                PAD_indicator, uppr - u_candidate_inner[slc(var)]
+                PAD_indicator, uppr - u_candidate_inner[_hs(var)]
             )  # upper PAD difference
     PAD_trouble = np.where(PAD_indicator < 0.0, 1, 0)
     PAD_violation_magnitude = np.where(PAD_trouble, -PAD_indicator, 0)

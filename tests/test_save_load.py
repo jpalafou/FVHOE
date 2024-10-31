@@ -1,5 +1,5 @@
 from fvhoe.boundary_conditions import BoundaryCondition
-from fvhoe.initial_conditions import shock_1d
+from fvhoe.initial_conditions import Shock1D
 from fvhoe.solver import EulerSolver
 import numpy as np
 import os
@@ -31,7 +31,7 @@ def test_save_load(dir_already_exists: bool, n_snapshots: int):
     N = 60
     p = 0
     solver_config = dict(
-        w0=shock_1d(),
+        w0=Shock1D(),
         nx=N,
         px=p,
         riemann_solver="llf",

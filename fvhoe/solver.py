@@ -1,4 +1,3 @@
-from fvhoe.array_management import get_array_slice as slc
 from fvhoe.boundary_conditions import BoundaryCondition
 from fvhoe.fv import (
     conservative_interpolation,
@@ -268,8 +267,8 @@ class EulerSolver(ODE):
         # define hydro state
         passive_scalars = tuple(w0_passives.keys()) if w0_passives is not None else ()
         self.hydro_state = HydroState(passive_scalars=passive_scalars)
-        _hs = self.hydro_state
-        self.nvars = _hs.nvars
+        hs = self.hydro_state
+        self.nvars = hs.nvars
 
         # user-defined initial condition function
         ic_func = w0.build_ic(self.hydro_state, w0_passives)
@@ -299,7 +298,7 @@ class EulerSolver(ODE):
             else:
                 self.w0 = ic_func
                 self.u0 = lambda x, y, z: compute_conservatives(
-                    _hs, ic_func(x, y, z), gamma=self.gamma
+                    hs, ic_func(x, y, z), gamma=self.gamma
                 )
             self.u0_fv = lambda x, y, z: fv_average(
                 self.u0, x, y, z, h=self.h, p=self.p
@@ -341,6 +340,7 @@ class EulerSolver(ODE):
                 y=("periodic", "periodic"),
                 z=("periodic", "periodic"),
                 array_manager=self.am,
+                hydro_state=self.hydro_state,
             )
         else:
             self.bc = BoundaryCondition(
@@ -352,6 +352,7 @@ class EulerSolver(ODE):
                 z_value=bc.z_value,
                 slab_coords=slab_coords,
                 array_manager=self.am,
+                hydro_state=self.hydro_state,
             )
 
         # configure initial condition boundary conditions
@@ -477,7 +478,7 @@ class EulerSolver(ODE):
                 H (array_like) : z-direction conservative fluxes. has shape (nvars, nx, ny, nz + 1)
         """
         self.timer.start(f"{timer_prefix}hydrofluxes")
-        _hs = self.hydro_state
+        hs = self.hydro_state
 
         # determine if slope limiting is required
         if slope_limiter is None:
@@ -504,13 +505,7 @@ class EulerSolver(ODE):
             ),
         )
 
-        # hard-coded floors
-        if self.density_floor is not None:
-            w_bc[slc("rho")] = np.maximum(w_bc[slc("rho")], self.density_floor)
-        if self.pressure_floor is not None:
-            w_bc[slc("P")] = np.maximum(w_bc[slc("P")], self.pressure_floor)
-
-        # and time-step size
+        # time-step size
         if self.fixed_dt is None:
             dt = hydro_dt(
                 w=w_bc,
@@ -580,7 +575,7 @@ class EulerSolver(ODE):
         self.timer.start(f"{timer_prefix}riemann solver")
         if self.xdim:
             f_face_center = self.riemann_solver(
-                hs=_hs,
+                hs=hs,
                 riemann_problem=(
                     w_x_face_center_r[:, :-1, ...],
                     w_x_face_center_l[:, 1:, ...],
@@ -591,7 +586,7 @@ class EulerSolver(ODE):
             )
         if self.ydim:
             g_face_center = self.riemann_solver(
-                hs=_hs,
+                hs=hs,
                 riemann_problem=(
                     w_y_face_center_r[:, :, :-1, ...],
                     w_y_face_center_l[:, :, 1:, ...],
@@ -602,7 +597,7 @@ class EulerSolver(ODE):
             )
         if self.zdim:
             h_face_center = self.riemann_solver(
-                hs=_hs,
+                hs=hs,
                 riemann_problem=(
                     w_z_face_center_r[:, :, :, :-1, ...],
                     w_z_face_center_l[:, :, :, 1:, ...],
@@ -679,7 +674,7 @@ class EulerSolver(ODE):
             None : revise fluxes in place
         """
         self.timer.start("(fallback scheme)")
-        _hs = self.hydro_state
+        hs = self.hydro_state
 
         # compute candidate solution
         ustar = u + dt * self.euler_equation(F=F, G=G, H=H)
@@ -696,8 +691,8 @@ class EulerSolver(ODE):
         # detect troubled cells
         self.timer.start("(fallback scheme) troubled cell detection")
         troubled_cells, NAD_mag, PAD_mag = detect_troubled_cells(
-            u=w[_hs("active_scalars")],
-            u_candidate=w_star[_hs("active_scalars")],
+            u=w[hs("active_scalars")],
+            u_candidate=w_star[hs("active_scalars")],
             dims=self.dims,
             NAD_eps=self.NAD,
             mode=self.NAD_mode,
@@ -775,7 +770,7 @@ class EulerSolver(ODE):
         returns:
             w (array_like) : primitive variables as finite volume averages or centroids
         """
-        _hs = self.hydro_state
+        hs = self.hydro_state
 
         # find required number of ghost zones
         if fv_average:
@@ -791,7 +786,7 @@ class EulerSolver(ODE):
         u_bc = self.bc.apply(u, gw=gw, t=self.t)
         self.timer.stop("boundary conditions")
         u_cell_centers = interpolate_cell_centers(u_bc, p=p)
-        w_cell_centers = compute_primitives(_hs, u_cell_centers, gamma=self.gamma)
+        w_cell_centers = compute_primitives(hs, u_cell_centers, gamma=self.gamma)
         if fv_average:
             w = interpolate_fv_averages(w_cell_centers, p=p)
         else:

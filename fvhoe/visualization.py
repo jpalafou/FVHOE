@@ -1,4 +1,4 @@
-from fvhoe.array_management import HydroState
+from fvhoe.hydro import HydroState
 from matplotlib import cm
 from matplotlib.colors import LogNorm
 import numpy as np
