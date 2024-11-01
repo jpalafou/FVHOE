@@ -46,5 +46,4 @@
 * make arrays 5D: (var, x-coord, y-coord, z-coord, interpolation)
 * MOOD loop
 * move density and pressure floors to PAD
-* passive scalars
 * slope limiting and sound speed should be computed from cell averages
