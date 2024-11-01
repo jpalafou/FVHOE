@@ -178,13 +178,13 @@ def test_ic_bc(dim: str, p: int, N: int = 100, gamma: float = 1.4, T: float = 1.
         np.array(
             [
                 3.857143,
-                10.33333 / (gamma - 1) + 0.5 * 3.857143 * 2.629369 * 2.629369,
                 3.857143 * 2.629369 if dim == "x" else 0,
                 3.857143 * 2.629369 if dim == "y" else 0,
                 3.857143 * 2.629369 if dim == "z" else 0,
+                10.33333 / (gamma - 1) + 0.5 * 3.857143 * 2.629369 * 2.629369,
             ]
         ),
-        np.array([1 + 0.2 * np.sin(5 * 5), 1 / (gamma - 1), 0, 0, 0]),
+        np.array([1 + 0.2 * np.sin(5 * 5), 0, 0, 0, 1 / (gamma - 1)]),
     )
 
     # solver with dirichlet bc

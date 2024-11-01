@@ -45,8 +45,8 @@ class HydroState:
             "m": np.arange(1, 4),
             "P": 4,
             "E": 4,
+            "active_scalars": np.arange(0, 5),
         }
-        self.variable_map["active_scalars"] = np.array([0, 1, 2, 3, 4])
 
         # check no duplicate passive scalars
         if len(self.passive_scalars) != len(set(self.passive_scalars)):

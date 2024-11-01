@@ -20,6 +20,7 @@ def test_hydrostate_init_no_scalars():
         "m": np.arange(1, 4),
         "P": 4,
         "E": 4,
+        "active_scalars": np.arange(0, 5),
     }
 
     assert set(expected_map.keys()) == set(state.variable_map.keys())
@@ -49,6 +50,7 @@ def test_hydrostate_init_with_scalars():
         "m": np.arange(1, 4),
         "P": 4,
         "E": 4,
+        "active_scalars": np.arange(0, 5),
         "tracer1": 5,
         "tracer2": 6,
         "passive_scalars": np.arange(5, 7),
