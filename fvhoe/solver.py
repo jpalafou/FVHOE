@@ -1,4 +1,3 @@
-from fvhoe.array_manager import get_array_slice as slc
 from fvhoe.boundary_conditions import BoundaryCondition
 from fvhoe.fv import (
     conservative_interpolation,
@@ -8,8 +7,8 @@ from fvhoe.fv import (
     interpolate_fv_averages,
     transverse_reconstruction,
 )
-from fvhoe.hydro import compute_conservatives, compute_primitives, hydro_dt
-from fvhoe.initial_conditions import square
+from fvhoe.hydro import compute_conservatives, compute_primitives, hydro_dt, HydroState
+from fvhoe.initial_conditions import InitialCondition, Square
 from fvhoe.ode import ODE
 from fvhoe.riemann_solvers import advection_upwind, hllc, llf
 from fvhoe.slope_limiting import (
@@ -27,7 +26,7 @@ import numpy as np
 import os
 import pickle
 import shutil
-from typing import Iterable, Tuple
+from typing import Callable, Dict, Iterable, Tuple
 
 try:
     from cupy import ndarray as cp_ndarray
@@ -42,7 +41,10 @@ except Exception:
 class EulerSolver(ODE):
     def __init__(
         self,
-        w0: callable = square,
+        w0: InitialCondition = Square(),
+        w0_passives: Dict[
+            str, Callable[[np.ndarray, np.ndarray, np.ndarray], np.ndarray]
+        ] = None,
         nx: int = 1,
         ny: int = 1,
         nz: int = 1,
@@ -81,16 +83,24 @@ class EulerSolver(ODE):
         cupy: bool = False,
     ):
         """
-        solver for Euler equations, a system of 5 variables:
+        solver for Euler equations, a system of 5+ variables:
             rho (density)
             P (pressure)
             vx (x-velocity)
             vy (y-velocity)
             vz (z-velocity)
+            passive_scalar1, passive_scalar2, ... (optional)
         implemented in 1D, 2D, and 3D
         args:
-            w0(X, Y, Z) (callable) : function of a 3D mesh. returns array_like of shape
-                (5, nz, ny, nz)
+            w0 (InitialCondition) : initial condition function generator
+            w0_passives (Dict[str, Callable[[np.ndarray, np.ndarray, np.ndarray], np.ndarray]) : dictionary of passive scalar IC functions
+                each function must have the signature f(x, y, z) -> np.ndarray
+                    args:
+                        x (np.ndarray) : x-coordinate mesh, shape (nx, ny, nz)
+                        y (np.ndarray) : y-coordinate mesh, shape (nx, ny, nz)
+                        z (np.ndarray) : z-coordinate mesh, shape (nx, ny, nz)
+                    returns:
+                        out (np.ndarray) : array of passive scalar, shape (nx, ny, nz)
             nx (int) : number of cells along x-direction. ignore by setting nx=1, px=0
             ny (int) : number of cells along y-direction. ignore by setting ny=1, py=0
             nz (int) : number of cells along z-direction. ignore by setting nz=1, pz=0
@@ -152,7 +162,9 @@ class EulerSolver(ODE):
 
         # call init functions
         self._init_mesh(x, y, z, nx, ny, nz, px, py, pz, CFL, fixed_dt)
-        self._init_initial_conditions(w0, conservative_ic, fv_ic, progress_bar, cupy)
+        self._init_initial_conditions(
+            w0, w0_passives, conservative_ic, fv_ic, progress_bar, cupy
+        )
         self._init_boundary_conditions(slab_buffer_size, bc, fv_ic)
         self._init_slope_limiting(
             a_posteriori_slope_limiting,
@@ -241,15 +253,26 @@ class EulerSolver(ODE):
             self.dims += "z"
         self.ndim = len(self.dims)
 
-    def _init_initial_conditions(self, w0, conservative_ic, fv_ic, progress_bar, cupy):
+    def _init_initial_conditions(
+        self, w0, w0_passives, conservative_ic, fv_ic, progress_bar, cupy
+    ):
         """
         initialize initial conditions, integrator, and array manager
         """
         self.conservative_ic = conservative_ic
         self.fv_ic = fv_ic
 
+        # define hydro state
+        passive_scalars = tuple(w0_passives.keys()) if w0_passives is not None else ()
+        self.hydro_state = HydroState(passive_scalars=passive_scalars)
+        hs = self.hydro_state
+        self.nvars = hs.nvars
+
+        # user-defined initial condition function
+        ic_func = w0.build_ic(self.hydro_state, w0_passives)
+
         # check if w0 accepts x, y, z as arguments
-        if not {"x", "y", "z"}.issubset(inspect.signature(w0).parameters):
+        if not {"x", "y", "z"}.issubset(inspect.signature(ic_func).parameters):
             raise ValueError(
                 "Initial condition function must accept x, y, z as arguments."
             )
@@ -258,11 +281,10 @@ class EulerSolver(ODE):
         #   w0(X, Y, Z) : pointwise primitive variables
         #   u0(X, Y, Z) : pointwise conservative variables
         #   u0_fv(X, Y, Z) : finite volume averages of conservative variables
-
         if self.conservative_ic and self.fv_ic:
             self.w0 = NotImplemented
             self.u0 = NotImplemented
-            self.u0_fv = w0
+            self.u0_fv = ic_func
         elif self.fv_ic:
             raise ValueError(
                 "Can't have finite volume averages without conservative IC."
@@ -270,11 +292,11 @@ class EulerSolver(ODE):
         else:
             if self.conservative_ic:
                 self.w0 = NotImplemented
-                self.u0 = w0
+                self.u0 = ic_func
             else:
-                self.w0 = w0
+                self.w0 = ic_func
                 self.u0 = lambda x, y, z: compute_conservatives(
-                    w0(x, y, z), gamma=self.gamma
+                    hs, ic_func(x, y, z), gamma=self.gamma
                 )
             self.u0_fv = lambda x, y, z: fv_average(
                 self.u0, x, y, z, h=self.h, p=self.p
@@ -316,6 +338,7 @@ class EulerSolver(ODE):
                 y=("periodic", "periodic"),
                 z=("periodic", "periodic"),
                 array_manager=self.am,
+                hydro_state=self.hydro_state,
             )
         else:
             self.bc = BoundaryCondition(
@@ -327,6 +350,7 @@ class EulerSolver(ODE):
                 z_value=bc.z_value,
                 slab_coords=slab_coords,
                 array_manager=self.am,
+                hydro_state=self.hydro_state,
             )
 
         # configure initial condition boundary conditions
@@ -379,10 +403,11 @@ class EulerSolver(ODE):
         """
         allocate Numpy or CuPy arrays
         """
+        nvars = self.nvars
         nx, ny, nz = self.n
 
         # primitive variables
-        self.am.add("w", np.empty((5, nx, ny, nz)))
+        self.am.add("w", np.empty((nvars, nx, ny, nz)))
 
         # limiting
         self.am.add("mean trouble", np.zeros((5, nx, ny, nz)))
@@ -390,9 +415,9 @@ class EulerSolver(ODE):
         self.am.add("mean PAD mag", np.zeros((5, nx, ny, nz)))
 
         # fluxes
-        self.am.add("F", np.empty((5, nx + 1, ny, nz)))
-        self.am.add("G", np.empty((5, nx, ny + 1, nz)))
-        self.am.add("H", np.empty((5, nx, ny, nz + 1)))
+        self.am.add("F", np.empty((nvars, nx + 1, ny, nz)))
+        self.am.add("G", np.empty((nvars, nx, ny + 1, nz)))
+        self.am.add("H", np.empty((nvars, nx, ny, nz + 1)))
 
     def f(self, t, u):
         """
@@ -405,7 +430,7 @@ class EulerSolver(ODE):
         """
         compute the Euler equation dynamics from cell-average conserved values u
         args:
-            u (array_like) : fv averages of conservative variables. has shape (5, nx, ny, nz)
+            u (array_like) : fv averages of conservative variables. has shape (nvars, nx, ny, nz)
         returns:
             dt, dudt (float, array_like) : time-step size, conservative variable dynamics
         """
@@ -439,18 +464,19 @@ class EulerSolver(ODE):
         compute the Euler equation fluxes F, G, H with degree p polynomials. optionally apply slope limiting.
         if xdim is False, F is returned as self.F and so on for G and H
         args:
-            u (array_like) : cell-averages of conservative variables. has shape (5, nx, ny, nz)
+            u (array_like) : cell-averages of conservative variables. has shape (nvars, nx, ny, nz)
             p (Tuple[int, int, int]) : polynomial interpolation degree (px, py, pz)
             limiter (str) : None, 'minmod', 'moncen'
             timer_prefix (str) : prefix for timer categories
         returns:
             dt, (F, G, H) (tuple) : time-step size and numerical fluxes
                 dt (float) : time-step size
-                F (array_like) : x-direction conservative fluxes. has shape (5, nx + 1, ny, nz)
-                G (array_like) : y-direction conservative fluxes. has shape (5, nx, ny + 1, nz)
-                H (array_like) : z-direction conservative fluxes. has shape (5, nx, ny, nz + 1)
+                F (array_like) : x-direction conservative fluxes. has shape (nvars, nx + 1, ny, nz)
+                G (array_like) : y-direction conservative fluxes. has shape (nvars, nx, ny + 1, nz)
+                H (array_like) : z-direction conservative fluxes. has shape (nvars, nx, ny, nz + 1)
         """
         self.timer.start(f"{timer_prefix}hydrofluxes")
+        hs = self.hydro_state
 
         # determine if slope limiting is required
         if slope_limiter is None:
@@ -477,13 +503,7 @@ class EulerSolver(ODE):
             ),
         )
 
-        # hard-coded floors
-        if self.density_floor is not None:
-            w_bc[slc("rho")] = np.maximum(w_bc[slc("rho")], self.density_floor)
-        if self.pressure_floor is not None:
-            w_bc[slc("P")] = np.maximum(w_bc[slc("P")], self.pressure_floor)
-
-        # and time-step size
+        # time-step size
         if self.fixed_dt is None:
             dt = hydro_dt(
                 w=w_bc,
@@ -553,24 +573,33 @@ class EulerSolver(ODE):
         self.timer.start(f"{timer_prefix}riemann solver")
         if self.xdim:
             f_face_center = self.riemann_solver(
-                wl=w_x_face_center_r[:, :-1, ...],
-                wr=w_x_face_center_l[:, 1:, ...],
+                hs=hs,
+                riemann_problem=(
+                    w_x_face_center_r[:, :-1, ...],
+                    w_x_face_center_l[:, 1:, ...],
+                ),
                 gamma=self.gamma,
                 dim="x",
                 csq_floor=self.csq_floor,
             )
         if self.ydim:
             g_face_center = self.riemann_solver(
-                wl=w_y_face_center_r[:, :, :-1, ...],
-                wr=w_y_face_center_l[:, :, 1:, ...],
+                hs=hs,
+                riemann_problem=(
+                    w_y_face_center_r[:, :, :-1, ...],
+                    w_y_face_center_l[:, :, 1:, ...],
+                ),
                 gamma=self.gamma,
                 dim="y",
                 csq_floor=self.csq_floor,
             )
         if self.zdim:
             h_face_center = self.riemann_solver(
-                wl=w_z_face_center_r[:, :, :, :-1, ...],
-                wr=w_z_face_center_l[:, :, :, 1:, ...],
+                hs=hs,
+                riemann_problem=(
+                    w_z_face_center_r[:, :, :, :-1, ...],
+                    w_z_face_center_l[:, :, :, 1:, ...],
+                ),
                 gamma=self.gamma,
                 dim="z",
                 csq_floor=self.csq_floor,
@@ -633,16 +662,17 @@ class EulerSolver(ODE):
         """
         revise fluxes to prevent oscillations
         args:
-            u (array_like) : fv averages of conservative variables. has shape (5, nx, ny, nz)
-            F (array_like) : x-fluxes. has shape (5, nx + 1, ny, nz)
-            G (array_like) : y-fluxes. has shape (5, nx, ny + 1, nz)
-            H (array_like) : z-fluxes. has shape (5, nx, ny, nz + 1)
+            u (array_like) : fv averages of conservative variables. has shape (nvars, nx, ny, nz)
+            F (array_like) : x-fluxes. has shape (nvars, nx + 1, ny, nz)
+            G (array_like) : y-fluxes. has shape (nvars, nx, ny + 1, nz)
+            H (array_like) : z-fluxes. has shape (nvars, nx, ny, nz + 1)
             dt (float) : time-step size
             force_trouble (bool) : all cells are troubled
         returns:
             None : revise fluxes in place
         """
         self.timer.start("(fallback scheme)")
+        hs = self.hydro_state
 
         # compute candidate solution
         ustar = u + dt * self.euler_equation(F=F, G=G, H=H)
@@ -659,8 +689,8 @@ class EulerSolver(ODE):
         # detect troubled cells
         self.timer.start("(fallback scheme) troubled cell detection")
         troubled_cells, NAD_mag, PAD_mag = detect_troubled_cells(
-            u=w,
-            u_candidate=w_star,
+            u=w[hs("active_scalars")],
+            u_candidate=w_star[hs("active_scalars")],
             dims=self.dims,
             NAD_eps=self.NAD,
             mode=self.NAD_mode,
@@ -705,9 +735,9 @@ class EulerSolver(ODE):
         """
         compute the Euler equation dynamics from fv-average conserved values u
         args:
-            F (array_like) : x-fluxes. has shape (5, nx + 1, ny, nz)
-            G (array_like) : y-fluxes. has shape (5, nx, ny + 1, nz)
-            H (array_like) : z-fluxes. has shape (5, nx, ny, nz + 1)
+            F (array_like) : x-fluxes. has shape (nvars, nx + 1, ny, nz)
+            G (array_like) : y-fluxes. has shape (nvars, nx, ny + 1, nz)
+            H (array_like) : z-fluxes. has shape (nvars, nx, ny, nz + 1)
         returns:
             dudt (array_like) : conservative variable dynamics
         """
@@ -738,6 +768,8 @@ class EulerSolver(ODE):
         returns:
             w (array_like) : primitive variables as finite volume averages or centroids
         """
+        hs = self.hydro_state
+
         # find required number of ghost zones
         if fv_average:
             interp_cost_x = 2 * get_stencil_size(p[0])
@@ -752,7 +784,7 @@ class EulerSolver(ODE):
         u_bc = self.bc.apply(u, gw=gw, t=self.t)
         self.timer.stop("boundary conditions")
         u_cell_centers = interpolate_cell_centers(u_bc, p=p)
-        w_cell_centers = compute_primitives(u_cell_centers, gamma=self.gamma)
+        w_cell_centers = compute_primitives(hs, u_cell_centers, gamma=self.gamma)
         if fv_average:
             w = interpolate_fv_averages(w_cell_centers, p=p)
         else:

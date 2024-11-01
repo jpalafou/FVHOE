@@ -1,4 +1,4 @@
-from fvhoe.array_manager import ArrayManager, CUPY_AVAILABLE
+from fvhoe.array_management import ArrayManager, CUPY_AVAILABLE
 import numpy as np
 import pytest
 

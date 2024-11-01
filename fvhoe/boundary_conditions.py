@@ -1,6 +1,7 @@
 from dataclasses import dataclass, field
 from itertools import product
-from fvhoe.array_manager import ArrayManager, get_array_slice as slc
+from fvhoe.array_management import ArrayManager
+from fvhoe.hydro import HydroState
 import numpy as np
 from typing import Dict, Tuple, Union
 
@@ -11,8 +12,11 @@ try:
 except Exception:
     CUPY_AVAILABLE = False
 
+_hs3D = HydroState(ndim=3)
 
-def set_dirichlet_bc(
+
+def _set_dirichlet_bc(
+    hs: HydroState,
     u: np.ndarray,
     boundary_values: Union[np.ndarray, callable],
     slab_thickness: int,
@@ -23,6 +27,7 @@ def set_dirichlet_bc(
     """
     modify u to impose dirichlet boundaries with either constant values or a function
     args:
+        hs (HydroState) : hydrostate object
         u (array_like) : array to apply boundary conditions to
         boundary_values (array_like, callable) : 1D array or callable that returns 3D array
         slab_thickness (int) : thickness of the slab to be copied
@@ -32,7 +37,7 @@ def set_dirichlet_bc(
         None, modifies u in place
     """
     slab_view = u[
-        slc(
+        hs(
             axis=axis,
             cut={"l": (0, slab_thickness), "r": (-slab_thickness, 0)}[pos],
         )
@@ -52,10 +57,13 @@ def set_dirichlet_bc(
     slab_view[...] = dirichlet_values
 
 
-def set_free_bc(u: np.ndarray, slab_thickness: int, axis: int, pos: str):
+def _set_free_bc(
+    hs: HydroState, u: np.ndarray, slab_thickness: int, axis: int, pos: str
+):
     """
     modify u to impose free boundaries
     args:
+        hs (HydroState) : hydrostate object
         u: (array_like) array to apply boundary conditions to
         slab_thickness: (int) thickness of the slab to be copied
         axis: (int) axis to apply periodic boundary conditions
@@ -66,21 +74,24 @@ def set_free_bc(u: np.ndarray, slab_thickness: int, axis: int, pos: str):
     st = slab_thickness
 
     if pos == "l":
-        outer = slc(axis=axis, cut=(0, st))
-        inner = slc(axis=axis, cut=(st, (st + 1)))
+        outer = hs(axis=axis, cut=(0, st))
+        inner = hs(axis=axis, cut=(st, (st + 1)))
     elif pos == "r":
-        outer = slc(axis=axis, cut=(-st, 0))
-        inner = slc(axis=axis, cut=(-(st + 1), -st))
+        outer = hs(axis=axis, cut=(-st, 0))
+        inner = hs(axis=axis, cut=(-(st + 1), -st))
     else:
         raise ValueError(f"Invalid pos '{pos}'")
 
     u[outer] = u[inner]
 
 
-def set_periodic_bc(u: np.ndarray, slab_thickness: int, axis: int) -> None:
+def _set_periodic_bc(
+    hs: HydroState, u: np.ndarray, slab_thickness: int, axis: int
+) -> None:
     """
     modify u to impose periodic boundaries
     args:
+        hs (HydroState) : hydrostate object
         u: (array_like) array to apply periodic boundary conditions to
         slab_thickness: (int) thickness of the slab to be copied
         axis: (int) axis to apply periodic boundary conditions
@@ -88,15 +99,16 @@ def set_periodic_bc(u: np.ndarray, slab_thickness: int, axis: int) -> None:
         None, modifies u in place
     """
     st = slab_thickness
-    outer_l = slc(axis=axis, cut=(0, st))
-    inner_l = slc(axis=axis, cut=(st, 2 * st))
-    outer_r = slc(axis=axis, cut=(-st, 0))
-    inner_r = slc(axis=axis, cut=(-2 * st, -st))
+    outer_l = hs(axis=axis, cut=(0, st))
+    inner_l = hs(axis=axis, cut=(st, 2 * st))
+    outer_r = hs(axis=axis, cut=(-st, 0))
+    inner_r = hs(axis=axis, cut=(-2 * st, -st))
     u[outer_l] = u[inner_r]
     u[outer_r] = u[inner_l]
 
 
-def set_symmetric_bc(
+def _set_symmetric_bc(
+    hs: HydroState,
     u: np.ndarray,
     slab_thickness: int,
     axis: int,
@@ -106,6 +118,7 @@ def set_symmetric_bc(
     """
     modify u to impose symmetric boundaries
     args:
+        hs (HydroState) : hydrostate object
         u: (array_like) array to apply boundary conditions to
         slab_thickness: (int) thickness of the slab to be copied
         axis: (int) axis to apply periodic boundary conditions
@@ -115,13 +128,13 @@ def set_symmetric_bc(
         None, modifies u in place
     """
     st = slab_thickness
-    flip = slc(axis=axis, cut=(0, 0), step=-1)
+    flip = hs(axis=axis, cut=(0, 0), step=-1)
     if pos == "l":
-        outer = slc(axis=axis, cut=(0, st))
-        inner = slc(axis=axis, cut=(st, 2 * st))
+        outer = hs(axis=axis, cut=(0, st))
+        inner = hs(axis=axis, cut=(st, 2 * st))
     elif pos == "r":
-        outer = slc(axis=axis, cut=(-st, 0))
-        inner = slc(axis=axis, cut=(-2 * st, -st))
+        outer = hs(axis=axis, cut=(-st, 0))
+        inner = hs(axis=axis, cut=(-2 * st, -st))
     else:
         raise ValueError(f"Invalid pos '{pos}'")
 
@@ -130,7 +143,7 @@ def set_symmetric_bc(
     # multiply a variable in the slab by -1
     if negate_var is not None:
         u[
-            slc(
+            hs(
                 negate_var,
                 axis=axis,
                 cut={"l": (0, st), "r": (-st, 0)}[pos],
@@ -174,6 +187,7 @@ class BoundaryCondition:
     ] = None
     slab_coords: Dict[str, np.ndarray] = None
     array_manager: ArrayManager = field(default_factory=ArrayManager)
+    hydro_state: HydroState = field(default_factory=HydroState)
 
     def __post_init__(self):
         # convert single values to tuples
@@ -240,6 +254,8 @@ class BoundaryCondition:
             axis (int) : axis of desired slab
             pos (str) : slab position along axis ("l" or "r")
         """
+
+        # get slab coordinates
         X = self.array_manager(f"bc_{'xyz'[axis]}{pos}_slab_x")
         Y = self.array_manager(f"bc_{'xyz'[axis]}{pos}_slab_y")
         Z = self.array_manager(f"bc_{'xyz'[axis]}{pos}_slab_z")
@@ -258,8 +274,7 @@ class BoundaryCondition:
             raise ValueError(
                 f"Cannot apply bc to region of thickness {gw[2]} with a buffer of thickness {self.slab_buffer_size[2]}"
             )
-        xtrim = slc(
-            ndim=3,
+        xtrim = _hs3D(
             axis=0,
             cut=(
                 {"l": (-gw[0], 0), "r": (0, gw[0])}[pos]
@@ -267,8 +282,7 @@ class BoundaryCondition:
                 else (xexcess, -xexcess)
             ),
         )
-        ytrim = slc(
-            ndim=3,
+        ytrim = _hs3D(
             axis=1,
             cut=(
                 {"l": (-gw[1], 0), "r": (0, gw[1])}[pos]
@@ -276,8 +290,7 @@ class BoundaryCondition:
                 else (yexcess, -yexcess)
             ),
         )
-        ztrim = slc(
-            ndim=3,
+        ztrim = _hs3D(
             axis=2,
             cut=(
                 {"l": (-gw[2], 0), "r": (0, gw[2])}[pos]
@@ -324,7 +337,8 @@ class BoundaryCondition:
                     dirichlet_kwargs = dict(x=X, y=Y, z=Z)
                     if bc == "dirichlet":
                         dirichlet_kwargs["t"] = t
-                    set_dirichlet_bc(
+                    _set_dirichlet_bc(
+                        hs=self.hydro_state,
                         u=out,
                         boundary_values=getattr(self, f"{dim}_value")[j],
                         slab_thickness=slab_thickness,
@@ -333,18 +347,30 @@ class BoundaryCondition:
                         **dirichlet_kwargs,
                     )
                 case "free":
-                    set_free_bc(out, slab_thickness, axis=i + 1, pos=pos)
+                    _set_free_bc(
+                        hs=self.hydro_state,
+                        u=out,
+                        slab_thickness=slab_thickness,
+                        axis=i + 1,
+                        pos=pos,
+                    )
                 case "outflow" | "reflective":
-                    set_symmetric_bc(
-                        out,
-                        slab_thickness,
+                    _set_symmetric_bc(
+                        hs=self.hydro_state,
+                        u=out,
+                        slab_thickness=slab_thickness,
                         axis=i + 1,
                         pos=pos,
                         negate_var=f"m{dim}" if bc == "reflective" else None,
                     )
                 case "periodic":
                     if pos == "l":  # do not apply periodic bc's twice
-                        set_periodic_bc(out, slab_thickness, axis=i + 1)
+                        _set_periodic_bc(
+                            hs=self.hydro_state,
+                            u=out,
+                            slab_thickness=slab_thickness,
+                            axis=i + 1,
+                        )
                 case "special-case-double-mach-reflection-y=0":
                     X = self.trim_slabs(gw=gw, axis=1, pos="l")[0][
                         np.newaxis, :, :1, :1
@@ -353,12 +379,13 @@ class BoundaryCondition:
                     out_refl = out.copy()
 
                     # set free bc
-                    set_free_bc(out_free, slab_thickness, axis=i + 1, pos=pos)
+                    _set_free_bc(out_free, slab_thickness, axis=i + 1, pos=pos)
 
                     # set reflective bc
-                    set_symmetric_bc(
-                        out_refl,
-                        slab_thickness,
+                    _set_symmetric_bc(
+                        hs=self.hydro_state,
+                        u=out_refl,
+                        slab_thickness=slab_thickness,
                         axis=i + 1,
                         pos=pos,
                         negate_var="my",

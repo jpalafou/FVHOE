@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from fvhoe.array_manager import ArrayManager
+from fvhoe.array_management import ArrayManager
 from fvhoe.timer import Timer
 import numpy as np
 import os

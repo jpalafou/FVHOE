@@ -2,7 +2,7 @@ import numpy as np
 from functools import lru_cache
 
 
-@lru_cache(maxsize=100)
+@lru_cache(maxsize=None)
 def get_stencil_size(p: int, mode: str = "right") -> int:
     """
     get the size of a stencil for a given polynomial degree
@@ -22,7 +22,7 @@ def get_stencil_size(p: int, mode: str = "right") -> int:
         raise ValueError(f"{mode=}")
 
 
-@lru_cache(maxsize=100)
+@lru_cache(maxsize=None)
 def get_conservative_interpolation_stencil_weights(p: int, pos: str) -> np.ndarray:
     """
     args:
@@ -178,7 +178,7 @@ def get_conservative_interpolation_stencil_weights(p: int, pos: str) -> np.ndarr
     return out
 
 
-@lru_cache(maxsize=100)
+@lru_cache(maxsize=None)
 def get_transverse_reconstruction_stencil_weights(p: int) -> np.ndarray:
     """
     args:

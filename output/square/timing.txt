@@ -1,0 +1,15 @@
+Category                                     Time (s)
+-----------------------------------------------------
+TOTAL                                            1.42
+SNAPSHOTS                                        0.00
+boundary conditions                              0.12
+(high-order) hydrofluxes                         1.16
+(high-order) riemann solver                      0.24
+(high-order) conservative interpolation          0.24
+(high-order) transverse reconstruction           0.07
+(fallback scheme)                                0.00
+(fallback scheme) troubled cell detection        0.00
+(fallback scheme) hydrofluxes                    0.00
+(fallback scheme) riemann solver                 0.00
+(fallback scheme) conservative interpolation     0.00
+(fallback scheme) transverse reconstruction      0.00

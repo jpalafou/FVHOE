@@ -1,13 +1,16 @@
-from fvhoe.initial_conditions import square, sinus
+from fvhoe.initial_conditions import Square, Sinus
 from fvhoe.fv import (
     interpolate_cell_centers,
     interpolate_fv_averages,
     fv_average,
     fv_uniform_meshgen,
 )
+from fvhoe.hydro import HydroState
 import numpy as np
 import pytest
-from tests.test_utils import l1err
+from tests.utils import l1err
+
+_hs = HydroState(ndim=1)
 
 
 def test_first_order_cell_average():
@@ -16,7 +19,7 @@ def test_first_order_cell_average():
     """
     X, Y, Z = fv_uniform_meshgen((32, 64, 128))
     h = (1 / 32, 1 / 64, 1 / 128)
-    f = sinus(dims="xyz", vx=1, vy=2, vz=3)
+    f = Sinus(dims="xyz", vx=1, vy=2, vz=3).build_ic(_hs)
 
     assert np.all(f(X, Y, Z) == fv_average(f=f, x=X, y=Y, z=Z, h=h))
 
@@ -34,7 +37,7 @@ def test_uniform_cell_average(px, py, pz):
     """
     X, Y, Z = fv_uniform_meshgen((32, 64, 128))
     h = (1 / 32, 1 / 64, 1 / 128)
-    f = square(dims="xyz", vx=1, vy=2, vz=3)
+    f = Square(dims="xyz", vx=1, vy=2, vz=3).build_ic(_hs)
 
     assert (
         l1err(f(X, Y, Z), fv_average(f=f, x=X, y=Y, z=Z, h=h, p=(px, py, pz))) < 1e-15

@@ -1,8 +1,11 @@
-from fvhoe.array_manager import get_array_slice as slc
+from fvhoe.hydro import HydroState
 from matplotlib import cm
 from matplotlib.colors import LogNorm
 import numpy as np
 from typing import Tuple
+
+# 1D HydroState object
+_hs = HydroState(ndim=1)
 
 
 def get_snapshot_list(s) -> list:
@@ -97,7 +100,7 @@ def get_velocity_magnitude(w: np.ndarray) -> np.ndarray:
         out (array_like) : velocity magnitude in 3D
     """
     out = np.sqrt(
-        np.square(w[slc("vx")]) + np.square(w[slc("vy")]) + np.square(w[slc("vz")])
+        np.square(w[_hs("vx")]) + np.square(w[_hs("vy")]) + np.square(w[_hs("vz")])
     )
     return out
 
@@ -158,6 +161,7 @@ def plot_1d_slice(
     returns:
         None : modifies the input Axes object
     """
+    hs = solver.hydro_state
     snapshots = get_snapshot_list(solver)
     n, slices = get_indices_from_coordinates(snapshots, t, x, y, z)
 
@@ -176,7 +180,7 @@ def plot_1d_slice(
     elif param == "v":
         source_array = get_velocity_magnitude(snapshots[n]["w"])
     else:
-        source_array = snapshots[n]["w"][slc(param)]
+        source_array = snapshots[n]["w"][hs(param)]
     y_for_plotting = source_array[slices]
     # print summary
     if verbose:
@@ -234,6 +238,7 @@ def plot_2d_slice(
     returns:
         None : modifies the input Axes object
     """
+    hs = solver.hydro_state
     snapshots = get_snapshot_list(solver)
     n, slices = get_indices_from_coordinates(snapshots, t, x, y, z)
 
@@ -269,7 +274,7 @@ def plot_2d_slice(
     elif param == "v":
         source_array = get_velocity_magnitude(snapshots[n]["w"])
     else:
-        source_array = snapshots[n]["w"][slc(param)]
+        source_array = snapshots[n]["w"][hs(param)]
     z_for_plotting = source_array[slices]
     # rotate
     X, Y = np.meshgrid(x_for_plotting, y_for_plotting, indexing="ij")
@@ -327,20 +332,27 @@ def sample_circular_average(
         bin_average (array_like) : average of param in each bin
         r_average (array_like) : average radius in each bin
     """
+    hs = solver.hydro_state
     snapshots = get_snapshot_list(solver)
     n, _ = get_indices_from_coordinates(snapshots, t)
+
+    # compute radial distance
     X, Y, Z = np.meshgrid(
         snapshots[n]["x"], snapshots[n]["y"], snapshots[n]["z"], indexing="ij"
     )
     R = np.sqrt(
         np.square(X - center[0]) + np.square(Y - center[1]) + np.square(Z - center[2])
     )
+
+    # get param data
     if param == "v":
         param_data = get_velocity_magnitude(snapshots[n]["w"])
     else:
-        param_data = snapshots[n]["w"][slc(param)]
+        param_data = snapshots[n]["w"][hs(param)]
     r_average = np.empty_like(radii[:-1])
     bin_average = np.empty_like(radii[:-1])
+
+    # sample
     for i, (little_r, big_r) in enumerate(zip(radii[:-1], radii[1:])):
         inside_bin = np.logical_and(R > little_r, R <= big_r)
         sample_n = np.sum(np.where(inside_bin, 1, 0))

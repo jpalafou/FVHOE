@@ -1,6 +1,8 @@
-from fvhoe.array_manager import get_array_slice as slc
+from fvhoe.hydro import HydroState
 from fvhoe.fv import second_order_central_difference, get_symmetric_slices
 import numpy as np
+
+_hs = HydroState(ndim=4)
 
 
 def compute_1d_smooth_extrema_detector(
@@ -63,10 +65,10 @@ def compute_2d_smooth_extrema_detector(
     axis1 = {"x": 1, "y": 2, "z": 3}[dims[0]]
     axis2 = {"x": 1, "y": 2, "z": 3}[dims[1]]
     alpha_dim1 = compute_1d_smooth_extrema_detector(
-        u[slc(ndim=u.ndim, axis=axis2, cut=(3, -3))], dim=dims[0], eps=eps
+        u[_hs(axis=axis2, cut=(3, -3))], dim=dims[0], eps=eps
     )
     alpha_dim2 = compute_1d_smooth_extrema_detector(
-        u[slc(ndim=u.ndim, axis=axis1, cut=(3, -3))], dim=dims[1], eps=eps
+        u[_hs(axis=axis1, cut=(3, -3))], dim=dims[1], eps=eps
     )
     out = np.minimum(alpha_dim1, alpha_dim2)
     return out
@@ -82,10 +84,10 @@ def compute_3d_smooth_extrema_detector(u: np.ndarray, eps: float = 1e-10) -> np.
             out (array_like) : first neighbor minimum of alpha along each specified direction (shorter by 6 elements)
     """
     alpha_xy = compute_2d_smooth_extrema_detector(
-        u[slc(ndim=u.ndim, axis=3, cut=(3, -3))], dims="xy", eps=eps
+        u[_hs(axis=3, cut=(3, -3))], dims="xy", eps=eps
     )
     alpha_z = compute_1d_smooth_extrema_detector(
-        u[slc(ndim=u.ndim, axis=1, cut=(3, -3))][slc(ndim=u.ndim, axis=2, cut=(3, -3))],
+        u[_hs(axis=1, cut=(3, -3))][_hs(axis=2, cut=(3, -3))],
         dim="z",
         eps=eps,
     )
