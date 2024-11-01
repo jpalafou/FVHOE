@@ -84,10 +84,10 @@ def compute_3d_smooth_extrema_detector(u: np.ndarray, eps: float = 1e-10) -> np.
             out (array_like) : first neighbor minimum of alpha along each specified direction (shorter by 6 elements)
     """
     alpha_xy = compute_2d_smooth_extrema_detector(
-        u[_hs(ndim=u.ndim, axis=3, cut=(3, -3))], dims="xy", eps=eps
+        u[_hs(axis=3, cut=(3, -3))], dims="xy", eps=eps
     )
     alpha_z = compute_1d_smooth_extrema_detector(
-        u[_hs(ndim=u.ndim, axis=1, cut=(3, -3))][_hs(ndim=u.ndim, axis=2, cut=(3, -3))],
+        u[_hs(axis=1, cut=(3, -3))][_hs(axis=2, cut=(3, -3))],
         dim="z",
         eps=eps,
     )

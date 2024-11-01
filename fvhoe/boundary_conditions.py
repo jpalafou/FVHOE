@@ -12,6 +12,8 @@ try:
 except Exception:
     CUPY_AVAILABLE = False
 
+_hs3D = HydroState(ndim=3)
+
 
 def _set_dirichlet_bc(
     hs: HydroState,
@@ -252,7 +254,6 @@ class BoundaryCondition:
             axis (int) : axis of desired slab
             pos (str) : slab position along axis ("l" or "r")
         """
-        _hs = self.hydro_state
 
         # get slab coordinates
         X = self.array_manager(f"bc_{'xyz'[axis]}{pos}_slab_x")
@@ -273,8 +274,7 @@ class BoundaryCondition:
             raise ValueError(
                 f"Cannot apply bc to region of thickness {gw[2]} with a buffer of thickness {self.slab_buffer_size[2]}"
             )
-        xtrim = _hs(
-            ndim=3,
+        xtrim = _hs3D(
             axis=0,
             cut=(
                 {"l": (-gw[0], 0), "r": (0, gw[0])}[pos]
@@ -282,8 +282,7 @@ class BoundaryCondition:
                 else (xexcess, -xexcess)
             ),
         )
-        ytrim = _hs(
-            ndim=3,
+        ytrim = _hs3D(
             axis=1,
             cut=(
                 {"l": (-gw[1], 0), "r": (0, gw[1])}[pos]
@@ -291,8 +290,7 @@ class BoundaryCondition:
                 else (yexcess, -yexcess)
             ),
         )
-        ztrim = _hs(
-            ndim=3,
+        ztrim = _hs3D(
             axis=2,
             cut=(
                 {"l": (-gw[2], 0), "r": (0, gw[2])}[pos]
